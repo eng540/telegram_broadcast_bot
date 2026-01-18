@@ -3,7 +3,7 @@ services:
   bot:
     build: .
     container_name: broadcast_bot
-    command: python src/main.py
+    command: python -m src.main
     volumes:
       - .:/app
       - ./data:/app/data
@@ -12,8 +12,18 @@ services:
     depends_on:
       - redis
     restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:alpine
     container_name: broadcast_redis
     restart: always
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

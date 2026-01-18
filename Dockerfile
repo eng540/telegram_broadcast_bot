@@ -4,16 +4,16 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH="${PYTHONPATH}:/app"
 
-# نسخ ملف requirements
+# تثبيت المتطلبات
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نسخ كل الملفات إلى الحاوية
+# نسخ الكود
 COPY . .
 
-# ضبط PYTHONPATH ليعرف مجلد src
-ENV PYTHONPATH="${PYTHONPATH}:/app"
+# إنشاء مجلد البيانات للتأكد من وجوده
+RUN mkdir -p /app/data
 
-# أمر التشغيل
 CMD ["python", "-m", "src.main"]

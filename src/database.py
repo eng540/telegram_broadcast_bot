@@ -3,7 +3,12 @@ from sqlalchemy.orm import sessionmaker
 from src.config import settings
 from src.models import Base
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+# استخدام pool_recycle لمنع انقطاع الاتصال الطويل
+engine = create_async_engine(
+    settings.DATABASE_URL, 
+    echo=False,
+    pool_recycle=3600
+)
 
 AsyncSessionLocal = sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False

@@ -1,65 +1,31 @@
 import logging
-import re
 from telegram import Update, ChatMember
-from telegram.ext import Application, ContextTypes, MessageHandler, ChatMemberHandler, filters
+from telegram.ext import Application, ContextTypes, MessageHandler, ChatMemberHandler, CommandHandler, filters
+from sqlalchemy import select, func, delete
 from src.config import settings
 from src.database import init_db, AsyncSessionLocal
 from src.models import Subscriber
 from src.services.forwarder import ForwarderService
-from sqlalchemy import delete
+from src.services.filters import FilterService
 
 # إعداد السجلات
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
+# تهيئة الخدمات
 forwarder = ForwarderService()
 
-# الروابط المسموح بها (قناتك)
-ALLOWED_LINK = "t.me/Rwaea3" 
-
-def is_ad(message) -> bool:
-    """
-    دالة الفلترة الشاملة: تمنع الروابط الخارجية + تمنع الرسائل المحولة (Forwards)
-    """
-    
-    # --- 1. فحص إعادة التوجيه (Forwarding Check) ---
-    # إذا كانت الرسالة تحتوي على مصدر توجيه (Forward Header)
-    if message.forward_origin:
-        # نحاول معرفة القناة الأصلية
-        origin_chat = getattr(message.forward_origin, 'chat', None)
-        
-        # الحالة الوحيدة المسموحة: أن تكون محولة من "نفس القناة المصدر" (تذكير بمنشور قديم)
-        if origin_chat and origin_chat.id == settings.MASTER_SOURCE_ID:
-            pass # مسموح، أكمل الفحص
-        else:
-            # أي حالة أخرى (قناة أخرى، شخص، مصدر مخفي) -> نعتبرها دعم/إعلان
-            logger.info("🚫 Detected Forwarded Post (Support/Cross-promo). Skipping.")
-            return True # هذا إعلان (احظره)
-
-    # --- 2. فحص الروابط النصية (Links Check) ---
-    text = message.text or message.caption or ""
-    
-    if text:
-        # البحث عن الروابط
-        url_pattern = r"(https?://[^\s]+)|(t\.me/[^\s]+)|(telegram\.me/[^\s]+)"
-        found_urls = re.findall(url_pattern, text)
-
-        for url_tuple in found_urls:
-            url = "".join(url_tuple).lower()
-            # إذا وجد رابطاً ليس لقناتنا -> حظر
-            if ALLOWED_LINK.lower() not in url:
-                logger.info(f"🚫 Detected Link Ad ({url}). Skipping.")
-                return True
-
-    return False
-
-# --- بقية الكود كما هو ---
-
 async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """متابعة دخول وخروج البوت من القنوات/المجموعات"""
     result = update.my_chat_member
     if not result: return
+    
     new_state = result.new_chat_member
     chat_id = result.chat.id
+    chat_name = result.chat.title or result.chat.username or str(chat_id)
     
     if new_state.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR]:
         async with AsyncSessionLocal() as session:
@@ -67,40 +33,64 @@ async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not existing:
                 session.add(Subscriber(chat_id=chat_id))
                 await session.commit()
-                try: await context.bot.send_message(chat_id, "🕊️ وصل الزاجل!\nتم تفعيل الخدمة.")
-                except: pass
+                logger.info(f"➕ New Subscriber: {chat_name} ({chat_id})")
+                try: 
+                    await context.bot.send_message(chat_id, "🕊️ تم تفعيل خدمة الزاجل بنجاح!")
+                except: 
+                    pass
 
     elif new_state.status in [ChatMember.LEFT, ChatMember.BANNED]:
         async with AsyncSessionLocal() as session:
             await session.execute(delete(Subscriber).where(Subscriber.chat_id == chat_id))
             await session.commit()
+            logger.info(f"➖ Subscriber Left: {chat_name} ({chat_id})")
 
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة المنشورات القادمة من القناة المصدر"""
     if update.effective_chat.id == settings.MASTER_SOURCE_ID:
         message = update.channel_post
         
-        # تطبيق الفلتر المشدد (روابط + توجيه)
-        if is_ad(message):
+        # استخدام خدمة الفلترة
+        if FilterService.is_ad(message):
             return
             
+        # بدء النشر
         await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر خاص بالمشرف لعرض الإحصائيات"""
+    user_id = update.effective_user.id
+    if user_id != settings.ADMIN_ID:
+        return
+
+    async with AsyncSessionLocal() as session:
+        # حساب عدد المشتركين بسرعة
+        count = await session.scalar(select(func.count()).select_from(Subscriber))
+        
+    await update.message.reply_text(f"📊 **إحصائيات الزاجل:**\n\n👥 عدد المشتركين النشطين: `{count}`", parse_mode="Markdown")
+
 async def post_init(app: Application):
+    """تهيئة قاعدة البيانات عند التشغيل"""
     await init_db()
-    logger.info("🛡️ System Ready (Anti-Ad & Anti-Forward Active).")
+    logger.info(f"🛡️ System Ready. Monitoring Source: {settings.MASTER_SOURCE_ID}")
 
 def main():
     application = Application.builder().token(settings.BOT_TOKEN).post_init(post_init).build()
+    
+    # Handlers
     application.add_handler(ChatMemberHandler(track_chats, ChatMemberHandler.MY_CHAT_MEMBER))
+    application.add_handler(CommandHandler("stats", stats_command))
     
-    # إضافة أوامر الرد البسيطة
-    application.add_handler(MessageHandler(filters.COMMAND, lambda u,c: u.message.reply_text("أهلاً بك في زاجل.")))
+    # رسالة ترحيب بسيطة في الخاص
+    application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.COMMAND, lambda u,c: u.message.reply_text("أهلاً بك في بوت الزاجل للنشر التلقائي.")))
     
+    # مراقب القناة المصدر
     application.add_handler(MessageHandler(
         filters.Chat(settings.MASTER_SOURCE_ID) & filters.UpdateType.CHANNEL_POST, 
         handle_source_post
     ))
-    application.run_polling()
+    
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
