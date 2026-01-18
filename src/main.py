@@ -10,7 +10,6 @@ from src.services.forwarder import ForwarderService
 from src.services.filters import FilterService
 from src.services.image_gen import ImageGenerator
 
-# إعداد السجلات (تفعيل المستوى DEBUG لرؤية كل التفاصيل)
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -18,6 +17,7 @@ forwarder = ForwarderService()
 image_gen = ImageGenerator()
 
 async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """متابعة المشتركين"""
     result = update.my_chat_member
     if not result: return
     new_state = result.new_chat_member
@@ -29,70 +29,83 @@ async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not existing:
                 session.add(Subscriber(chat_id=chat_id))
                 await session.commit()
-                logger.info(f"➕ New Subscriber: {chat_id}")
+                # محاولة إرسال رسالة ترحيب (قد تفشل في القنوات وتنجح في المجموعات/الخاص)
+                try: await context.bot.send_message(chat_id, "🕊️ وصل الزاجل!\nتم تفعيل الخدمة.")
+                except: pass
     elif new_state.status in [ChatMember.LEFT, ChatMember.BANNED]:
         async with AsyncSessionLocal() as session:
             await session.execute(delete(Subscriber).where(Subscriber.chat_id == chat_id))
             await session.commit()
-            logger.info(f"➖ Subscriber Left: {chat_id}")
 
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    نسخة التشخيص: ستخبرنا أين تتوقف الرسالة بالضبط
+    المنطق المحصن ضد التكرار:
+    المسار 1: نص -> توليد صورة -> إرسال للقناة -> توقف.
+    المسار 2: ميديا (صورة/فيديو) -> توزيع للمشتركين.
     """
-    # 1. التحقق من المصدر
     if update.effective_chat.id == settings.MASTER_SOURCE_ID:
         message = update.channel_post
-        if not message: 
-            return
-
-        logger.info(f"📩 RECEIVED POST: ID={message.message_id} | Type={'Text' if message.text else 'Media'}")
-
-        # 2. الفلترة
-        if FilterService.is_ad(message):
-            logger.warning(f"🚫 BLOCKED BY FILTER: ID={message.message_id}")
-            return
+        if not message: return
         
-        logger.info("✅ Passed Ad Filter.")
-
-        # 3. تحليل المحتوى
-        is_text_only = (message.text is not None) and (not message.photo) and (not message.video)
+        # 1. الفلترة الأمنية
+        if FilterService.is_ad(message):
+            return
+            
+        # تحديد نوع الرسالة بدقة
+        is_text_pure = (message.text is not None) and (not message.photo) and (not message.video) and (not message.document)
         text_content = message.text or ""
         
-        logger.info(f"🔍 CONTENT CHECK: TextOnly={is_text_only}, Length={len(text_content)}")
-
-        if is_text_only and 5 < len(text_content) < 450:
-            logger.info("🎨 Starting Image Rendering...")
+        # --- المسار الأول: معالجة النصوص (صناعة المحتوى) ---
+        if is_text_pure and 5 < len(text_content) < 450:
+            logger.info(f"🎨 Converting Text to Art: {message.message_id}")
             try:
-                # استدعاء المحرك
+                # 1. التصميم
                 image_path = await image_gen.render(text_content, message.message_id)
-                logger.info(f"✅ Render Success: {image_path}")
                 
-                caption_part = text_content.split('\n')[0][:97] + "..." if len(text_content) > 100 else text_content.split('\n')[0]
+                # 2. تجهيز الكابشن
+                caption_part = text_content.split('\n')[0]
+                if len(caption_part) > 100: caption_part = caption_part[:97] + "..."
                 
-                logger.info("🚀 Broadcasting Image...")
-                await forwarder.broadcast_image(context.bot, image_path, caption_part, message.message_id)
+                # 3. النشر في القناة (ليراها الجمهور وتعود لنا كحدث جديد)
+                with open(image_path, 'rb') as f:
+                    await context.bot.send_photo(
+                        chat_id=settings.MASTER_SOURCE_ID,
+                        photo=f,
+                        caption=caption_part,
+                        reply_to_message_id=message.message_id 
+                    )
                 
+                # 4. التنظيف والتوقف
+                os.remove(image_path)
+                logger.info("✅ Art posted to channel. Waiting for Telegram loop-back to broadcast.")
+                
+                # هام جداً: التوقف هنا يمنع إرسال النص للمشتركين
+                # المشتركون سيحصلون فقط على الصورة عندما تعود في المسار الثاني
+                return 
+
             except Exception as e:
-                logger.error(f"❌ RENDER ERROR: {e}", exc_info=True)
-                logger.info("🔄 Falling back to text broadcast.")
+                logger.error(f"⚠️ Art Gen Failed: {e}")
+                # في حال فشل التصميم فقط، نرسل النص كبديل
                 await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
+        
+        # --- المسار الثاني: التعامل مع الميديا (النشر) ---
         else:
-            logger.info("📢 Broadcasting RAW message (Not suitable for card).")
+            # هذا الكود سيعمل في حالتين:
+            # 1. عندما تصل الصورة التي صممناها للتو (لأنها ليست نصاً، هي photo).
+            # 2. عندما ينشر المشرف فيديو أو صورة جاهزة.
+            
+            logger.info(f"📢 Broadcasting Media: {message.message_id}")
             await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
-    else:
-        # رسالة من مصدر غير معروف (للتأكد فقط)
-        logger.info(f"⚠️ Ignored message from wrong chat: {update.effective_chat.id}")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != settings.ADMIN_ID: return
     async with AsyncSessionLocal() as session:
         count = await session.scalar(select(func.count()).select_from(Subscriber))
-    await update.message.reply_text(f"Users: {count}")
+    await update.message.reply_text(f"📊 *إحصائيات الزاجل*\n👥 المشتركون: `{count}`", parse_mode="Markdown")
 
 async def post_init(app: Application):
     await init_db()
-    logger.info(f"🛡️ System Ready. Watching: {settings.MASTER_SOURCE_ID}")
+    logger.info("🛡️ System Ready. Loop Protection Active.")
 
 def main():
     application = Application.builder().token(settings.BOT_TOKEN).post_init(post_init).build()
