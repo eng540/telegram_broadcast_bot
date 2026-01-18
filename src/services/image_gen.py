@@ -13,7 +13,7 @@ from jinja2 import Environment, FileSystemLoader
 logger = logging.getLogger("HtmlRenderer")
 logging.basicConfig(level=logging.INFO)
 
-CHANNEL_NAME = "روائع الأدب العربي"
+CHANNEL_NAME = "روائع من الأدب العربي"
 CHANNEL_HANDLE = "@Rwaea3"
 
 class ImageGenerator:
