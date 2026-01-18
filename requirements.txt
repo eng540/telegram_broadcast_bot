@@ -1,6 +1,9 @@
-python-telegram-bot[job-queue]==20.7
+python-telegram-bot[job-queue]==21.4
 sqlalchemy[asyncio]==2.0.25
 asyncpg==0.29.0
 redis==5.0.1
 pydantic-settings==2.1.0
 greenlet==3.0.3
+Pillow==10.2.0
+arabic-reshaper==3.0.0
+python-bidi==0.4.2
