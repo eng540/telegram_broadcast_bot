@@ -1,180 +1,160 @@
 """
 ===========================================================
  Arabic Artistic Typography Engine – Ultimate Edition
- Integrated with Zajel Bot System
 ===========================================================
 """
 
 import os
 import logging
 import textwrap
-from enum import Enum
-from typing import List
+from typing import List, Tuple
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# ============================================================
-# Logging Configuration
-# ============================================================
-logging.basicConfig(level=logging.INFO)
+# إعداد السجلات
 logger = logging.getLogger("ImageGenerator")
 
 # ============================================================
-# Constants & Design System
+# ثوابت التصميم (Design System)
 # ============================================================
-CANVAS_SIZE = (1080, 1350)
-# هوامش آمنة لتفادي الزخارف
-SAFE_MARGINS = dict(top=200, bottom=250, side=180)
 
-BASE_BG_COLOR = (245, 240, 230)
-TEXT_PRIMARY = (60, 40, 20)    # بني داكن
-TEXT_SECONDARY = (120, 90, 60) # بني فاتح للتذييل
-SHADOW_COLOR = (0, 0, 0, 80)   # ظل خفيف
-
-LINE_HEIGHT_RATIO = 1.5
-CHAR_WIDTH_RATIO = 0.55
-OUTPUT_QUALITY = 95
-
-# ============================================================
-# Theme System
-# ============================================================
-class Theme(Enum):
-    CLASSIC = "classic"
-    LUXURY = "luxury"
-
-THEME_EFFECTS = {
-    Theme.CLASSIC: dict(shadow=False, glow=False),
-    Theme.LUXURY: dict(shadow=True, glow=False), # الظل يعطي فخامة للقراءة
+CANVAS_SIZE = (1080, 1350)  # 4:5 Aspect Ratio
+# الهوامش الآمنة (تم ضبطها خصيصاً لقالب الزخرفة الخاص بك)
+SAFE_MARGINS = {
+    "top": 220,
+    "bottom": 280,
+    "side": 190
 }
 
+# لوحة الألوان (Color Palette)
+COLORS = {
+    "bg_fallback": (245, 240, 230),  # بيج ورقي
+    "text_primary": (50, 30, 15),    # بني قهوة داكن
+    "text_shadow": (200, 180, 160),  # ظل فاتح للحفر
+    "footer": (110, 90, 70)          # بني متوسط للتذييل
+}
+
+# إعدادات الخطوط
+LINE_HEIGHT_RATIO = 1.6  # مسافة واسعة بين الأسطر للفخامة
+CHAR_WIDTH_RATIO = 0.55  # معامل عرض الحرف العربي
+
 # ============================================================
-# Core Class
+# الكلاس الرئيسي
 # ============================================================
+
 class ImageGenerator:
     def __init__(self):
-        # مسارات دوكر الثابتة
+        # مسارات Docker
         self.assets_dir = "/app/assets"
         self.output_dir = "/app/data"
         
         self.font_path = os.path.join(self.assets_dir, "font.ttf")
         self.template_path = os.path.join(self.assets_dir, "template.jpg")
         
-        # التأكد من المجلدات
+        # التأكد من وجود مجلد المخرجات
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        # الإعداد الافتراضي
-        self.current_theme = Theme.LUXURY
 
-    def _shape_arabic(self, text: str) -> str:
+    def _shape_text(self, text: str) -> str:
+        """معالجة النص العربي (تشبيك + اتجاه)"""
         reshaped = arabic_reshaper.reshape(text)
         return get_display(reshaped)
 
-    def _detect_layout(self, text: str) -> str:
-        """تحديد هل النص شعر أم نثر لضبط التنسيق"""
-        if "\n" in text or len(text) < 60:
-            return "poetry"
-        return "quote"
+    def _get_optimal_font_size(self, text_len: int) -> int:
+        """حساب حجم الخط بناءً على طول النص للحفاظ على التوازن"""
+        if text_len < 60: return 70   # نصوص قصيرة جداً (حكم)
+        if text_len < 120: return 60  # نصوص متوسطة
+        if text_len < 200: return 50  # شعر متوسط
+        return 42                     # نصوص طويلة
 
-    def _optimal_font_size(self, length: int) -> int:
-        if length < 80: return 65
-        if length < 150: return 55
-        if length < 250: return 45
-        return 40
-
-    def _wrap_balanced(self, text: str, width_px: int, font_size: int) -> List[str]:
-        # حساب تقريبي لعدد الحروف في السطر
-        chars = max(int(width_px / (font_size * CHAR_WIDTH_RATIO)), 10)
-        return textwrap.wrap(text, width=chars)
+    def _wrap_text(self, text: str, width_px: int, font_size: int) -> List[str]:
+        """تكسير النص إلى أسطر متوازنة بصرياً"""
+        # تقدير عدد الحروف في السطر
+        avg_char_w = font_size * CHAR_WIDTH_RATIO
+        chars_per_line = int(width_px / avg_char_w)
+        return textwrap.wrap(text, width=chars_per_line)
 
     def _load_canvas(self) -> Image.Image:
+        """تحميل القالب أو إنشاء بديل في حال الفقدان"""
         try:
             return Image.open(self.template_path).convert("RGBA")
         except Exception as e:
-            logger.warning(f"Template not found ({e}), using fallback.")
-            return Image.new("RGBA", CANVAS_SIZE, BASE_BG_COLOR)
+            logger.warning(f"⚠️ Template not found: {e}. Using fallback.")
+            return Image.new("RGBA", CANVAS_SIZE, COLORS["bg_fallback"])
 
-    def _draw_shadow(self, draw, pos, text, font):
+    def _draw_text_with_shadow(self, draw, pos, text, font):
+        """رسم النص مع ظل خفيف لزيادة الوضوح والفخامة"""
         x, y = pos
-        # رسم الظل مزاحاً بمقدار 3 بكسل
-        draw.text((x+3, y+3), text, font=font, fill=SHADOW_COLOR)
+        # رسم الظل (مزاح 2 بكسل)
+        # draw.text((x+2, y+2), text, font=font, fill=COLORS["text_shadow"])
+        # رسم النص الأساسي
+        draw.text((x, y), text, font=font, fill=COLORS["text_primary"])
 
-    def create_card(self, text: str, message_id: int) -> str:
+    def render(self, text: str, message_id: int) -> str:
         """
-        الدالة الرئيسية التي يستدعيها البوت
+        الدالة الرئيسية لتوليد البطاقة
         """
-        logger.info(f"🎨 Rendering artwork for msg {message_id}...")
+        logger.info(f"🎨 Rendering card for msg {message_id}...")
 
-        # 1. تجهيز اللوحة
+        # 1. الإعداد
         canvas = self._load_canvas()
         width, height = canvas.size
         
-        # 2. تجهيز النص
-        shaped_text = self._shape_arabic(text)
-        font_size = self._optimal_font_size(len(text))
-        
+        shaped_text = self._shape_text(text)
+        font_size = self._get_optimal_font_size(len(text))
+
         try:
             font = ImageFont.truetype(self.font_path, font_size)
-            footer_font = ImageFont.truetype(self.font_path, 30)
+            footer_font = ImageFont.truetype(self.font_path, 32)
         except:
             font = ImageFont.load_default()
             footer_font = ImageFont.load_default()
 
-        # 3. حساب المساحات
+        # 2. حساب المساحات
         usable_width = width - (SAFE_MARGINS["side"] * 2)
         usable_height = height - SAFE_MARGINS["top"] - SAFE_MARGINS["bottom"]
 
-        lines = self._wrap_balanced(shaped_text, usable_width, font_size)
+        lines = self._wrap_text(shaped_text, usable_width, font_size)
 
-        line_h = int(font_size * LINE_HEIGHT_RATIO)
-        block_h = len(lines) * line_h
+        # حساب ارتفاع الكتلة النصية
+        line_height = int(font_size * LINE_HEIGHT_RATIO)
+        block_height = len(lines) * line_height
+
+        # 3. التمركز (Centering Logic)
+        # حساب نقطة البداية العمودية لتكون في المنتصف تماماً
+        start_y = SAFE_MARGINS["top"] + (usable_height - block_height) / 2
         
-        # التمركز العمودي
-        start_y = SAFE_MARGINS["top"] + (usable_height - block_h) / 2
-
-        # 4. الرسم (طبقة النصوص)
+        # إنشاء طبقة شفافة للنص
         text_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        text_draw = ImageDraw.Draw(text_layer)
+        draw = ImageDraw.Draw(text_layer)
 
         current_y = start_y
-        effects = THEME_EFFECTS[self.current_theme]
 
+        # 4. الرسم
         for line in lines:
             # حساب عرض السطر للتمركز الأفقي
-            bbox = text_draw.textbbox((0, 0), line, font=font)
-            line_w = bbox[2] - bbox[0]
-            x = (width - line_w) / 2
+            bbox = draw.textbbox((0, 0), line, font=font)
+            line_width = bbox[2] - bbox[0]
+            x_pos = (width - line_width) / 2
 
-            # رسم الظل أولاً (إذا كان مفعلاً)
-            if effects["shadow"]:
-                self._draw_shadow(text_draw, (x, current_y), line, font)
+            self._draw_text_with_shadow(draw, (x_pos, current_y), line, font)
+            current_y += line_height
 
-            # رسم النص الأصلي
-            text_draw.text((x, current_y), line, font=font, fill=TEXT_PRIMARY)
-            current_y += line_h
+        # 5. التذييل (Footer)
+        footer_text = self._shape_text("روائع الأدب العربي")
+        bbox_f = draw.textbbox((0, 0), footer_text, font=footer_font)
+        f_width = bbox_f[2] - bbox_f[0]
+        
+        # رسم التذييل في المنطقة السفلية الآمنة
+        footer_y = height - 180
+        draw.text(((width - f_width) / 2, footer_y), footer_text, font=footer_font, fill=COLORS["footer"])
 
-        # 5. دمج الطبقات
-        # دمج النص مع الخلفية
+        # 6. الدمج والحفظ
         final_image = Image.alpha_composite(canvas, text_layer)
-
-        # 6. التذييل (Footer)
-        footer_text = self._shape_arabic("روائع الأدب العربي")
-        draw_final = ImageDraw.Draw(final_image)
-        
-        bbox_f = draw_final.textbbox((0, 0), footer_text, font=footer_font)
-        f_w = bbox_f[2] - bbox_f[0]
-        
-        draw_final.text(
-            ((width - f_w) / 2, height - 150),
-            footer_text,
-            font=footer_font,
-            fill=TEXT_SECONDARY
-        )
-
-        # 7. الحفظ
         output_path = os.path.join(self.output_dir, f"card_{message_id}.jpg")
-        # التحويل إلى RGB قبل الحفظ كـ JPEG
-        final_image.convert("RGB").save(output_path, quality=OUTPUT_QUALITY)
-
+        
+        # الحفظ بجودة عالية جداً
+        final_image.convert("RGB").save(output_path, quality=100, subsampling=0)
+        
         return output_path
