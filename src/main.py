@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update, ChatMember
 from telegram.ext import Application, ContextTypes, MessageHandler, ChatMemberHandler, CommandHandler, filters
 from sqlalchemy import select, func, delete
@@ -7,57 +8,22 @@ from src.database import init_db, AsyncSessionLocal
 from src.models import Subscriber
 from src.services.forwarder import ForwarderService
 from src.services.filters import FilterService
-# استيراد المصمم
 from src.services.image_gen import ImageGenerator
 
+# إعداد السجلات
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# تهيئة الخدمات
 forwarder = ForwarderService()
-image_gen = ImageGenerator() # تهيئة المصمم
-
-async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id == settings.MASTER_SOURCE_ID:
-        message = update.channel_post
-        if not message: return
-        
-        # 1. الفلترة الأمنية
-        if FilterService.is_ad(message):
-            return
-            
-        # 2. فحص هل نصمم بطاقة؟
-        # الشروط: الرسالة نصية فقط + النص أقل من 400 حرف (لأن الصور لا تتسع لمقالات)
-        is_text_only = (message.text is not None) and (not message.photo) and (not message.video)
-        text_content = message.text or ""
-        
-        if is_text_only and 10 < len(text_content) < 400:
-            logger.info(f"🎨 Generating card for message {message.message_id}")
-            try:
-                # توليد الصورة
-                image_path = image_gen.create_card(text_content, message.message_id)
-                
-                # إرسال الصورة للمشتركين
-                # نستخدم جزء من النص كـ Caption
-                caption_part = text_content[:100] + "..." if len(text_content) > 100 else text_content
-                await forwarder.broadcast_image(context.bot, image_path, caption_part, message.message_id)
-                
-            except Exception as e:
-                logger.error(f"Failed to generate image: {e}")
-                # في حال فشل التصميم، نعود للطريقة القديمة (إرسال النص كما هو)
-                await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
-        else:
-            # للنصوص الطويلة جداً أو الفيديوهات أو الصور الجاهزة
-            logger.info(f"📢 Broadcasting raw message {message.message_id}")
-            await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
-
-# --- بقية الدوال (track_chats, stats, main) تبقى كما هي دون تغيير ---
-# (تأكد من وجود بقية الكود القديم هنا ليعمل البوت)
+image_gen = ImageGenerator()
 
 async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.my_chat_member
     if not result: return
     new_state = result.new_chat_member
     chat_id = result.chat.id
+    
     if new_state.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR]:
         async with AsyncSessionLocal() as session:
             existing = await session.get(Subscriber, chat_id)
@@ -71,15 +37,49 @@ async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await session.execute(delete(Subscriber).where(Subscriber.chat_id == chat_id))
             await session.commit()
 
+async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id == settings.MASTER_SOURCE_ID:
+        message = update.channel_post
+        if not message: return
+        
+        # 1. الفلترة
+        if FilterService.is_ad(message):
+            return
+            
+        # 2. منطق تحويل النص إلى صورة
+        # الشروط: نص موجود + لا يوجد ميديا + الطول مناسب (بين 10 و 400 حرف)
+        is_text_only = (message.text is not None) and (not message.photo) and (not message.video)
+        text_content = message.text or ""
+        
+        if is_text_only and 10 < len(text_content) < 400:
+            logger.info(f"🎨 Generating Art Card for message {message.message_id}")
+            try:
+                # توليد الصورة باستخدام الكلاس الجديد
+                image_path = image_gen.create_card(text_content, message.message_id)
+                
+                # تجهيز الكابشن (أول 100 حرف)
+                caption_part = text_content[:100] + "..." if len(text_content) > 100 else text_content
+                
+                # إرسال الصورة
+                await forwarder.broadcast_image(context.bot, image_path, caption_part, message.message_id)
+                
+            except Exception as e:
+                logger.error(f"⚠️ Failed to generate image: {e}")
+                # في حال الفشل، نرسل النص العادي كخطة بديلة
+                await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
+        else:
+            # الرسائل الطويلة أو الفيديوهات
+            await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
+
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != settings.ADMIN_ID: return
     async with AsyncSessionLocal() as session:
         count = await session.scalar(select(func.count()).select_from(Subscriber))
-    await update.message.reply_text(f"👥 المشتركين: {count}")
+    await update.message.reply_text(f"📊 المشتركين النشطين: {count}")
 
 async def post_init(app: Application):
     await init_db()
-    logger.info("🛡️ System Ready.")
+    logger.info("🛡️ System Ready & Image Generator Loaded.")
 
 def main():
     application = Application.builder().token(settings.BOT_TOKEN).post_init(post_init).build()
