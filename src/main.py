@@ -8,6 +8,7 @@ from src.database import init_db, AsyncSessionLocal
 from src.models import Subscriber
 from src.services.forwarder import ForwarderService
 from src.services.filters import FilterService
+# استيراد المحرك الجديد
 from src.services.image_gen import ImageGenerator
 
 # إعداد السجلات
@@ -19,6 +20,7 @@ forwarder = ForwarderService()
 image_gen = ImageGenerator()
 
 async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """متابعة دخول وخروج البوت من المجموعات"""
     result = update.my_chat_member
     if not result: return
     new_state = result.new_chat_member
@@ -38,54 +40,69 @@ async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await session.commit()
 
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """المعالج الرئيسي للمنشورات"""
     if update.effective_chat.id == settings.MASTER_SOURCE_ID:
         message = update.channel_post
         if not message: return
         
-        # 1. الفلترة
+        # 1. الفلترة الأمنية (إعلانات، روابط خارجية)
         if FilterService.is_ad(message):
             return
             
-        # 2. منطق تحويل النص إلى صورة
-        # الشروط: نص موجود + لا يوجد ميديا + الطول مناسب (بين 10 و 400 حرف)
+        # 2. تحليل المحتوى: هل نصنع بطاقة؟
+        # الشروط: نص موجود + لا يوجد ميديا + الطول مناسب
         is_text_only = (message.text is not None) and (not message.photo) and (not message.video)
         text_content = message.text or ""
         
-        if is_text_only and 10 < len(text_content) < 400:
-            logger.info(f"🎨 Generating Art Card for message {message.message_id}")
+        # الحد الأقصى 450 حرف لضمان جمالية التصميم
+        if is_text_only and 5 < len(text_content) < 450:
             try:
-                # توليد الصورة باستخدام الكلاس الجديد
-                image_path = image_gen.create_card(text_content, message.message_id)
+                # استدعاء المحرك الجرافيكي
+                image_path = image_gen.render(text_content, message.message_id)
                 
-                # تجهيز الكابشن (أول 100 حرف)
-                caption_part = text_content[:100] + "..." if len(text_content) > 100 else text_content
+                # تجهيز وصف قصير للصورة (Caption)
+                # نأخذ أول سطر أو أول 100 حرف
+                caption_part = text_content.split('\n')[0]
+                if len(caption_part) > 100:
+                    caption_part = caption_part[:97] + "..."
                 
-                # إرسال الصورة
+                # إرسال الصورة عبر الموزع
                 await forwarder.broadcast_image(context.bot, image_path, caption_part, message.message_id)
                 
             except Exception as e:
-                logger.error(f"⚠️ Failed to generate image: {e}")
-                # في حال الفشل، نرسل النص العادي كخطة بديلة
+                logger.error(f"⚠️ Image Generation Failed: {e}")
+                logger.info("🔄 Falling back to text broadcast.")
+                # خطة بديلة: إرسال النص كما هو في حال فشل التصميم
                 await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
         else:
-            # الرسائل الطويلة أو الفيديوهات
+            # الرسائل الطويلة جداً أو التي تحتوي على وسائط أصلاً
             await forwarder.broadcast_message(context.bot, settings.MASTER_SOURCE_ID, message.message_id)
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر الإحصائيات للمشرف"""
     if update.effective_user.id != settings.ADMIN_ID: return
     async with AsyncSessionLocal() as session:
         count = await session.scalar(select(func.count()).select_from(Subscriber))
-    await update.message.reply_text(f"📊 المشتركين النشطين: {count}")
+    await update.message.reply_text(f"📊 **إحصائيات الزاجل:**\n👥 المشتركين النشطين: `{count}`", parse_mode="Markdown")
 
 async def post_init(app: Application):
+    """تهيئة النظام عند التشغيل"""
     await init_db()
-    logger.info("🛡️ System Ready & Image Generator Loaded.")
+    logger.info("🛡️ System Ready. Art Engine Online.")
 
 def main():
     application = Application.builder().token(settings.BOT_TOKEN).post_init(post_init).build()
+    
+    # Handlers
     application.add_handler(ChatMemberHandler(track_chats, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(MessageHandler(filters.Chat(settings.MASTER_SOURCE_ID) & filters.UpdateType.CHANNEL_POST, handle_source_post))
+    
+    # مراقب القناة المصدر
+    application.add_handler(MessageHandler(
+        filters.Chat(settings.MASTER_SOURCE_ID) & filters.UpdateType.CHANNEL_POST, 
+        handle_source_post
+    ))
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
