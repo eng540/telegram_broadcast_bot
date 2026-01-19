@@ -1,12 +1,12 @@
 import os
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.constants import ParseMode, ChatType
 from telegram.ext import ContextTypes
 from src.utils.helpers import ensure_user_exists
+from src.config import settings
+from src.services.content_manager import content
 from src.services.image_gen import ImageGenerator
 
-logger = logging.getLogger(__name__)
 image_gen = ImageGenerator()
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -15,36 +15,32 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await ensure_user_exists(user, context.bot)
 
-    welcome_text = (
-        f"أهلاً بك يا *{user.first_name}* 👋\n\n"
-        "أنا **زاجل**، رفيقك الأدبي.\n"
-        "✨ **ميزة خاصة:** أرسل لي أي نص الآن وسأحوله للوحة فنية!"
-    )
-    keyboard = [[InlineKeyboardButton("📢 القناة الرسمية", url="https://t.me/Rwaea3")]]
-    await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+    header = content.get("welcome.header", name=user.first_name)
+    body = content.get("welcome.body")
+    text = f"{header}\n\n{body}"
+    
+    keyboard = [
+        [InlineKeyboardButton(content.get("welcome.buttons.channel"), url=settings.CHANNEL_LINK)],
+        [InlineKeyboardButton(content.get("welcome.buttons.add_group"), url=f"https://t.me/{context.bot.username}?startgroup=true")]
+    ]
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_private_design(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
     
-    if len(text) > 450 or len(text) < 5:
-        await update.message.reply_text("⚠️ النص يجب أن يكون بين 5 و 450 حرفاً.")
+    if len(text) > 450:
+        await update.message.reply_text(content.get("art.error_too_long"))
         return
-
+    
     await context.bot.send_chat_action(chat_id=user.id, action=constants.ChatAction.UPLOAD_PHOTO)
-    status_msg = await update.message.reply_text("🎨 جاري الرسم...")
+    status = await update.message.reply_text(content.get("art.processing"))
 
     try:
-        image_path = await image_gen.render(text, update.message.message_id)
-        with open(image_path, 'rb') as f:
-            await update.message.reply_photo(
-                photo=f,
-                caption="✍️ **تصميم خاص لك**",
-                reply_to_message_id=update.message.message_id,
-                parse_mode=ParseMode.MARKDOWN
-            )
-        await status_msg.delete()
-        os.remove(image_path)
-    except Exception as e:
-        logger.error(f"Design Failed: {e}")
-        await status_msg.edit_text("حدث خطأ فني.")
+        path = await image_gen.render(text, update.message.message_id)
+        with open(path, 'rb') as f:
+            await update.message.reply_photo(photo=f, caption=content.get("art.success_caption"), parse_mode=ParseMode.MARKDOWN)
+        await status.delete()
+        os.remove(path)
+    except Exception:
+        await status.edit_text(content.get("art.error_generic"))
