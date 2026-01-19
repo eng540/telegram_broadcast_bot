@@ -13,7 +13,6 @@ image_gen = ImageGenerator()
 
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != settings.MASTER_SOURCE_ID: return
-    
     message = update.channel_post
     if not message or (message.from_user and message.from_user.id == context.bot.id): return
     if FilterService.is_ad(message): return
@@ -21,21 +20,16 @@ async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE)
     is_text = (message.text is not None) and (not message.photo)
     text = message.text or ""
 
-    if is_text and 5 < len(text) < 3000:
+    if is_text and 5 < len(text) < 5000: # دعم القصائد الطويلة
         try:
-            image_path = await image_gen.render(text, message.message_id)
+            path = await image_gen.render(text, message.message_id)
             caption = text.split('\n')[0][:97] + "..."
-            
-            with open(image_path, 'rb') as f:
+            with open(path, 'rb') as f:
                 sent = await context.bot.send_photo(
-                    chat_id=settings.MASTER_SOURCE_ID,
-                    photo=f,
-                    caption=caption,
-                    reply_to_message_id=message.message_id
+                    chat_id=settings.MASTER_SOURCE_ID, photo=f, caption=caption, reply_to_message_id=message.message_id
                 )
-            
             await forwarder.broadcast_message(context.bot, sent.message_id)
-            os.remove(image_path)
+            os.remove(path)
         except Exception as e:
             logger.error(f"Art Error: {e}")
             await forwarder.broadcast_message(context.bot, message.message_id)
