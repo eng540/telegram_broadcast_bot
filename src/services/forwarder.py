@@ -1,50 +1,140 @@
 import logging
 import asyncio
 import redis.asyncio as redis
+
 from telegram import Bot
-from telegram.error import RetryAfter, Forbidden, BadRequest, ChatNotFound
+from telegram.error import RetryAfter, Forbidden, BadRequest
+
 from sqlalchemy import select, update
+
 from src.database import AsyncSessionLocal
 from src.models import BotUser, TelegramChannel, TelegramGroup
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class ForwarderService:
     def __init__(self):
         self.redis = redis.from_url(settings.REDIS_URL)
 
     async def broadcast_message(self, bot: Bot, source_msg_id: int):
-        await self._broadcast(bot, source_msg_id, BotUser, BotUser.user_id, BotUser.is_active, "Users")
-        await self._broadcast(bot, source_msg_id, TelegramChannel, TelegramChannel.chat_id, TelegramChannel.is_active, "Channels")
-        await self._broadcast(bot, source_msg_id, TelegramGroup, TelegramGroup.chat_id, TelegramGroup.is_active, "Groups")
+        await self._broadcast(
+            bot,
+            source_msg_id,
+            BotUser,
+            BotUser.user_id,
+            BotUser.is_active,
+            "Users",
+        )
+        await self._broadcast(
+            bot,
+            source_msg_id,
+            TelegramChannel,
+            TelegramChannel.chat_id,
+            TelegramChannel.is_active,
+            "Channels",
+        )
+        await self._broadcast(
+            bot,
+            source_msg_id,
+            TelegramGroup,
+            TelegramGroup.chat_id,
+            TelegramGroup.is_active,
+            "Groups",
+        )
 
     async def _broadcast(self, bot, msg_id, model, id_col, active_col, label):
         async with AsyncSessionLocal() as session:
-            result = await session.stream_scalars(select(id_col).where(active_col == True))
+            result = await session.stream_scalars(
+                select(id_col).where(active_col == True)
+            )
+
             batch = []
             async for chat_id in result:
                 batch.append(chat_id)
+
                 if len(batch) >= 20:
-                    await self._send_batch(bot, batch, msg_id, model, id_col)
+                    await self._send_batch(
+                        bot, batch, msg_id, model, id_col, label
+                    )
                     batch = []
                     await asyncio.sleep(0.1)
-            if batch: await self._send_batch(bot, batch, msg_id, model, id_col)
 
-    async def _send_batch(self, bot, batch, msg_id, model, id_col):
-        tasks = [self._safe_copy(bot, cid, settings.MASTER_SOURCE_ID, msg_id, model, id_col) for cid in batch]
+            if batch:
+                await self._send_batch(
+                    bot, batch, msg_id, model, id_col, label
+                )
+
+    async def _send_batch(self, bot, batch, msg_id, model, id_col, label):
+        tasks = [
+            self._safe_copy(
+                bot,
+                chat_id,
+                settings.MASTER_SOURCE_ID,
+                msg_id,
+                model,
+                id_col,
+                label,
+            )
+            for chat_id in batch
+        ]
         await asyncio.gather(*tasks)
 
-    async def _safe_copy(self, bot, chat_id, from_chat, msg_id, model, id_col):
+    async def _safe_copy(
+        self, bot, chat_id, from_chat, msg_id, model, id_col, label
+    ):
         try:
-            await bot.copy_message(chat_id=chat_id, from_chat_id=from_chat, message_id=msg_id)
+            await bot.copy_message(
+                chat_id=chat_id,
+                from_chat_id=from_chat,
+                message_id=msg_id,
+            )
+
         except RetryAfter as e:
+            logger.warning(
+                f"⏳ RetryAfter {e.retry_after}s → {label} {chat_id}"
+            )
             await asyncio.sleep(e.retry_after)
-            await self._safe_copy(bot, chat_id, from_chat, msg_id, model, id_col)
-        except (Forbidden, ChatNotFound):
-            try:
-                async with AsyncSessionLocal() as session:
-                    await session.execute(update(model).where(id_col == chat_id).values(is_active=False))
-                    await session.commit()
-            except: pass
-        except Exception: pass
+            await self._safe_copy(
+                bot, chat_id, from_chat, msg_id, model, id_col, label
+            )
+
+        except Forbidden:
+            logger.warning(
+                f"🚫 Forbidden → deactivating {label} {chat_id}"
+            )
+            await self._deactivate(chat_id, model, id_col)
+
+        except BadRequest as e:
+            msg = str(e).lower()
+
+            if "chat not found" in msg:
+                logger.warning(
+                    f"❌ Chat not found → deactivating {label} {chat_id}"
+                )
+                await self._deactivate(chat_id, model, id_col)
+            else:
+                logger.error(
+                    f"⚠️ BadRequest for {label} {chat_id}: {e}"
+                )
+                raise
+
+        except Exception as e:
+            logger.exception(
+                f"💥 Unexpected error for {label} {chat_id}: {e}"
+            )
+
+    async def _deactivate(self, chat_id, model, id_col):
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    update(model)
+                    .where(id_col == chat_id)
+                    .values(is_active=False)
+                )
+                await session.commit()
+        except Exception as e:
+            logger.error(
+                f"Failed to deactivate chat {chat_id}: {e}"
+            )
