@@ -6,16 +6,15 @@
 """
 import os
 import logging
-import urllib.request
+import asyncio
 from playwright.async_api import async_playwright
 from jinja2 import Environment, FileSystemLoader
-from src.config import settings
 
 logger = logging.getLogger("HtmlRenderer")
-logging.setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
-# رابط الخط العريض (كما في الكود الذي طلبته)
-FONT_URL = "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Bold.ttf"
+CHANNEL_NAME = "روائع من الأدب العربي"
+CHANNEL_HANDLE = "@Rwaea3"
 
 class ImageGenerator:
     def __init__(self):
@@ -23,36 +22,22 @@ class ImageGenerator:
         self.assets_dir = "/app/assets"
         self.template_dir = "/app/templates"
         
-        self.font_path = os.path.join(self.assets_dir, "amiri_bold.ttf")
-        
-        # إنشاء المجلدات
-        os.makedirs(self.output_dir, exist_ok=True)
-        os.makedirs(self.assets_dir, exist_ok=True)
-        os.makedirs(self.template_dir, exist_ok=True)
-        
-        self._ensure_font()
         self._create_template()
-
-    def _ensure_font(self):
-        """تحميل الخط إذا لم يكن موجوداً"""
-        if not os.path.exists(self.font_path) or os.path.getsize(self.font_path) < 10000:
-            try:
-                logger.info("⬇️ Downloading Amiri-Bold...")
-                urllib.request.urlretrieve(FONT_URL, self.font_path)
-            except Exception as e:
-                logger.error(f"Font Download Error: {e}")
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def _create_template(self):
         """
         تصميم مرن (Flexbox) يسمح بالتمدد الرأسي
         """
+        os.makedirs(self.template_dir, exist_ok=True)
+        
         html_content = """
         <!DOCTYPE html>
         <html lang="ar" dir="rtl">
         <head>
             <meta charset="UTF-8">
             <style>
-                @font-face { font-family: 'Amiri'; src: url('file:///app/assets/amiri_bold.ttf'); }
+                @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Reem+Kufi:wght@500&display=swap');
                 
                 body {
                     margin: 0;
@@ -152,12 +137,11 @@ class ImageGenerator:
                 }
 
                 .handle-text {
+                    font-family: 'Reem Kufi', sans-serif;
                     font-size: 24px;
                     color: #0088cc;
                     font-weight: 600;
-                    font-family: sans-serif;
                     direction: ltr;
-                    margin-left: 10px;
                 }
             </style>
         </head>
@@ -173,12 +157,12 @@ class ImageGenerator:
                     <div class="ornament">✦</div>
                     <div class="line"></div>
                 </div>
-                <div class="brand-name">""" + settings.CHANNEL_NAME + """</div>
+                <div class="brand-name">""" + CHANNEL_NAME + """</div>
                 <div class="handle-box">
                     <svg class="telegram-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .24z"/>
                     </svg>
-                    <span class="handle-text">""" + settings.CHANNEL_HANDLE + """</span>
+                    <span class="handle-text">""" + CHANNEL_HANDLE + """</span>
                 </div>
             </div>
 
@@ -193,11 +177,12 @@ class ImageGenerator:
         
         text_len = len(text)
         
-        # معادلة ذكية لحجم الخط
+        # معادلة ذكية لحجم الخط:
+        # النصوص الطويلة جداً (مثل القصائد) تحتاج خطاً متوسطاً (ليس صغيراً جداً) لتبقى مقروءة
         if text_len < 50: font_size = 90
         elif text_len < 150: font_size = 70
         elif text_len < 300: font_size = 60
-        else: font_size = 55
+        else: font_size = 55  # القصائد الطويلة تثبت على حجم 55
 
         env = Environment(loader=FileSystemLoader(self.template_dir))
         template = env.get_template("card.html")
@@ -213,7 +198,8 @@ class ImageGenerator:
             await page.set_content(html_out)
             await page.wait_for_timeout(100)
             
-            # full_page=True: لالتقاط الصورة كاملة حتى لو كانت طويلة
+            # --- السحر هنا ---
+            # full_page=True: تخبر المتصفح أن يلتقط الصورة كاملة حتى لو كان هناك "سكرول"
             await page.screenshot(path=output_path, type='jpeg', quality=95, full_page=True)
             
             await browser.close()
