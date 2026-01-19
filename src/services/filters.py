@@ -10,22 +10,26 @@ class FilterService:
     def is_ad(message: Message) -> bool:
         """
         فلتر ذكي: يمنع الروابط الخارجية والرسائل المحولة من قنوات غريبة
+        (متوافق مع python-telegram-bot v21+)
         """
-        # 1. فحص التوجيه (Forward Check)
-        # السماح فقط إذا كانت الرسالة أصلية أو محولة من نفس القناة المصدر
-        fwd_origin = getattr(message, 'forward_origin', None)
-        if fwd_origin:
-            origin_chat = getattr(fwd_origin, 'chat', None)
+        
+        # --- 1. فحص التوجيه (Forward Check) - التحديث الجديد ---
+        # في النسخة 21+، نستخدم forward_origin بدلاً من forward_from_chat
+        if message.forward_origin:
+            # نحاول معرفة القناة الأصلية
+            origin_chat = getattr(message.forward_origin, 'chat', None)
+            
+            # إذا كانت الرسالة محولة من قناة، وهذه القناة ليست قناتنا المصدر -> حظر
             if origin_chat and origin_chat.id != settings.MASTER_SOURCE_ID:
-                logger.info("🚫 Filter: Blocked external forward.")
+                logger.info("🚫 Filter: Blocked external forward (Channel).")
                 return True
+            
+            # إذا كانت محولة من مستخدم أو مصدر مخفي -> حظر (غالباً إعلانات)
+            if not origin_chat:
+                 logger.info("🚫 Filter: Blocked external forward (User/Hidden).")
+                 return True
 
-        # الطريقة القديمة للتوجيه (للاحتياط)
-        if message.forward_from_chat:
-            if message.forward_from_chat.id != settings.MASTER_SOURCE_ID:
-                return True
-
-        # 2. فحص الروابط (Links Check)
+        # --- 2. فحص الروابط (Links Check) ---
         text = message.text or message.caption or ""
         if text:
             # تعبير نمطي لاكتشاف الروابط
@@ -34,8 +38,12 @@ class FilterService:
 
             for url_tuple in found_urls:
                 url = "".join(url_tuple).lower()
-                # السماح فقط برابط قناتنا (الموجود في الإعدادات)
-                if settings.CHANNEL_HANDLE.replace("@", "").lower() not in url:
+                
+                # تنظيف المعرف من @ للمقارنة
+                my_handle = settings.CHANNEL_HANDLE.replace("@", "").lower()
+                
+                # إذا وجد رابطاً، ولم يكن يحتوي على معرف قناتنا -> حظر
+                if my_handle not in url:
                     logger.info(f"🚫 Filter: Blocked external link ({url}).")
                     return True
 
