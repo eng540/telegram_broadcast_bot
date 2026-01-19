@@ -2,8 +2,9 @@ import logging
 import asyncio
 import redis.asyncio as redis
 from telegram import Bot
-from telegram.error import RetryAfter, Forbidden, BadRequest, ChatNotFound
-from sqlalchemy import select, update  # استبدلنا delete بـ update
+# تصحيح الاستدعاء: حذفنا ChatNotFound لأنها غير موجودة
+from telegram.error import RetryAfter, Forbidden, BadRequest
+from sqlalchemy import select, delete
 from src.database import AsyncSessionLocal
 from src.models import BotUser, TelegramChannel, TelegramGroup
 from src.config import settings
@@ -15,18 +16,15 @@ class ForwarderService:
         self.redis = redis.from_url(settings.REDIS_URL)
 
     async def broadcast_message(self, bot: Bot, source_msg_id: int):
-        logger.info(f"📣 Starting Smart Broadcast for Msg: {source_msg_id}")
+        logger.info(f"📣 Starting Broadcast for Message ID: {source_msg_id}")
 
-        # نرسل فقط للنشطين (is_active=True)
-        await self._broadcast_to_model(bot, source_msg_id, BotUser, BotUser.user_id, BotUser.is_active, "Users")
-        await self._broadcast_to_model(bot, source_msg_id, TelegramChannel, TelegramChannel.chat_id, TelegramChannel.is_active, "Channels")
-        await self._broadcast_to_model(bot, source_msg_id, TelegramGroup, TelegramGroup.chat_id, TelegramGroup.is_active, "Groups")
+        await self._broadcast_to_model(bot, source_msg_id, BotUser, BotUser.user_id, "Users")
+        await self._broadcast_to_model(bot, source_msg_id, TelegramChannel, TelegramChannel.chat_id, "Channels")
+        await self._broadcast_to_model(bot, source_msg_id, TelegramGroup, TelegramGroup.chat_id, "Groups")
 
-    async def _broadcast_to_model(self, bot: Bot, msg_id: int, model_class, id_column, active_column, type_name):
+    async def _broadcast_to_model(self, bot: Bot, msg_id: int, model_class, id_column, type_name):
         async with AsyncSessionLocal() as session:
-            # 💡 الفلتر الذهبي: اختر فقط النشطين
-            stmt = select(id_column).where(active_column == True)
-            result = await session.stream_scalars(stmt)
+            result = await session.stream_scalars(select(id_column))
             
             batch = []
             count = 0
@@ -42,7 +40,7 @@ class ForwarderService:
                 await self._process_batch(bot, batch, msg_id, model_class, id_column)
                 count += len(batch)
             
-            logger.info(f"✅ Finished {type_name}: {count} Active Targets")
+            logger.info(f"✅ Finished {type_name}: Processed {count}")
 
     async def _process_batch(self, bot: Bot, batch: list, msg_id: int, model_class, id_column):
         tasks = [self._safe_copy(bot, chat_id, settings.MASTER_SOURCE_ID, msg_id, model_class, id_column) for chat_id in batch]
@@ -53,23 +51,33 @@ class ForwarderService:
             await bot.copy_message(chat_id=chat_id, from_chat_id=from_chat, message_id=msg_id)
         
         except RetryAfter as e:
-            logger.warning(f"⏳ FloodWait {e.retry_after}s")
+            logger.warning(f"⏳ FloodWait: Sleeping {e.retry_after}s")
             await asyncio.sleep(e.retry_after)
             await self._safe_copy(bot, chat_id, from_chat, msg_id, model_class, id_column)
         
-        except (Forbidden, ChatNotFound):
-            # 🛑 التغيير الجذري هنا: Soft Delete
-            # لا نحذف السجل، بل نضع علامة "غير نشط"
-            logger.info(f"💤 Deactivating entity {chat_id} (Soft Delete)")
-            try:
-                async with AsyncSessionLocal() as session:
-                    stmt = update(model_class).where(id_column == chat_id).values(is_active=False)
-                    await session.execute(stmt)
-                    await session.commit()
-            except Exception as e:
-                logger.error(f"DB Update Error: {e}")
+        except Forbidden:
+            # 🛑 المستخدم حظر البوت (هذا الخطأ صحيح وموجود)
+            logger.info(f"🗑️ Forbidden: Removing {chat_id}")
+            await self._delete_entry(model_class, id_column, chat_id)
 
         except BadRequest as e:
-            logger.error(f"⚠️ Technical Error for {chat_id}: {e}")
+            # 🛑 هنا نلتقط خطأ "Chat not found" الذي يأتي تحت مظلة BadRequest
+            error_msg = str(e)
+            if "Chat not found" in error_msg or "chat not found" in error_msg:
+                logger.info(f"🗑️ Chat Not Found: Removing {chat_id}")
+                await self._delete_entry(model_class, id_column, chat_id)
+            else:
+                # أخطاء تقنية أخرى (لا نحذف المستخدم)
+                logger.error(f"⚠️ Technical Skip {chat_id}: {e}")
+        
         except Exception as e:
-            logger.error(f"⚠️ Unknown Error: {e}")
+            logger.error(f"⚠️ Unknown Error for {chat_id}: {e}")
+
+    async def _delete_entry(self, model_class, id_column, chat_id):
+        """دالة مساعدة للحذف من قاعدة البيانات"""
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(delete(model_class).where(id_column == chat_id))
+                await session.commit()
+        except Exception as e:
+            logger.error(f"DB Cleanup Error: {e}")
