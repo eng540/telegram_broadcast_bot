@@ -1,207 +1,371 @@
-"""
-===========================================================
- Modern HTML/CSS Rendering Engine (Playwright)
- Dynamic Height Edition (Smart Scroll) 📜
-===========================================================
-"""
 import os
 import logging
-import asyncio
+import urllib.request
+from pathlib import Path
 from playwright.async_api import async_playwright
 from jinja2 import Environment, FileSystemLoader
+from src.config import settings
 
 logger = logging.getLogger("HtmlRenderer")
-logging.basicConfig(level=logging.INFO)
+logger.setLevel(logging.INFO)
 
-CHANNEL_NAME = "روائع من الأدب العربي"
-CHANNEL_HANDLE = "@Rwaea3"
+# استخدم هذا الخط - أجمل للشعر العربي
+FONT_URL = "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf"
 
 class ImageGenerator:
     def __init__(self):
+        """تهيئة مولد الصور بتصميم ثابت ومتسق"""
         self.output_dir = "/app/data"
         self.assets_dir = "/app/assets"
         self.template_dir = "/app/templates"
         
-        self._create_template()
-        os.makedirs(self.output_dir, exist_ok=True)
-
-    def _create_template(self):
-        """
-        تصميم مرن (Flexbox) يسمح بالتمدد الرأسي
-        """
-        os.makedirs(self.template_dir, exist_ok=True)
+        self.font_path = Path(self.assets_dir) / "amiri.ttf"
         
-        html_content = """
-        <!DOCTYPE html>
-        <html lang="ar" dir="rtl">
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Reem+Kufi:wght@500&display=swap');
-                
-                body {
-                    margin: 0;
-                    padding: 0;
-                    width: 1080px;
-                    /* السر هنا: الحد الأدنى 1350، لكنه قابل للزيادة */
-                    min-height: 1350px; 
-                    background-color: #ffffff;
-                    font-family: 'Amiri', serif;
-                    
-                    /* تحويل الجسم إلى عمود مرن */
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: space-between; /* يباعد بين المحتوى والتذييل */
-                    
-                    color: #2c1e18;
-                    box-sizing: border-box; /* حساب الهوامش ضمن الطول */
-                    padding-bottom: 50px; /* هامش سفلي أمان */
-                }
+        # إنشاء المجلدات
+        for directory in [self.output_dir, self.assets_dir, self.template_dir]:
+            Path(directory).mkdir(parents=True, exist_ok=True)
+        
+        self._ensure_font()
+        self._create_fixed_template()  # تصميم ثابت
+        
+        # أبعاد ثابتة لجميع الصور
+        self.WIDTH = 1080
+        self.HEIGHT = 1350
 
-                .main-content {
-                    width: 850px; /* وسعنا العرض قليلاً */
-                    padding-top: 120px;
-                    padding-bottom: 80px;
-                    
-                    /* يسمح للمحتوى بالنمو ودفعه للأسفل */
-                    flex-grow: 1; 
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center; /* توسيط النص في المساحة المتاحة */
-                    align-items: center;
-                }
+    def _ensure_font(self):
+        """التأكد من وجود الخط"""
+        if not self.font_path.exists() or self.font_path.stat().st_size < 50000:
+            try:
+                logger.info("📥 جاري تحميل الخط العربي...")
+                urllib.request.urlretrieve(FONT_URL, str(self.font_path))
+                logger.info(f"✅ تم تحميل الخط: {self.font_path}")
+            except Exception as e:
+                logger.error(f"❌ فشل تحميل الخط: {e}")
 
-                .text-body {
-                    font-size: {{ font_size }}px;
-                    font-weight: 700;
-                    line-height: 1.8;
-                    text-align: center;
-                    white-space: pre-wrap; /* يحترم الأسطر والمسافات */
-                }
-
-                .footer-container {
-                    width: 600px;
-                    margin-top: 50px; /* مسافة فاصلة عن النص */
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    opacity: 0.9;
-                    /* نضمن أن التذييل لا يتقلص */
-                    flex-shrink: 0; 
-                }
-
-                .divider {
-                    width: 100%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    margin-bottom: 25px;
-                }
-
-                .line {
-                    height: 2px;
-                    background-color: #bcaaa4;
-                    flex-grow: 1;
-                    border-radius: 2px;
-                }
-
-                .ornament {
-                    padding: 0 15px;
-                    color: #8d6e63;
-                    font-size: 24px;
-                }
-
-                .brand-name {
-                    font-family: 'Amiri', serif;
-                    font-size: 38px;
-                    font-weight: 700;
-                    color: #3e2723;
-                    margin-bottom: 10px;
-                }
-
-                .handle-box {
-                    display: flex;
-                    align-items: center;
-                    background-color: #f5f5f5;
-                    padding: 8px 25px;
-                    border-radius: 50px;
-                    border: 1px solid #e0e0e0;
-                }
-
-                .telegram-icon {
-                    width: 24px;
-                    height: 24px;
-                    margin-left: 10px;
-                    fill: #0088cc;
-                }
-
-                .handle-text {
-                    font-family: 'Reem Kufi', sans-serif;
-                    font-size: 24px;
-                    color: #0088cc;
-                    font-weight: 600;
-                    direction: ltr;
-                }
-            </style>
-        </head>
-        <body>
-            
-            <div class="main-content">
-                <div class="text-body">{{ text }}</div>
+    def _create_fixed_template(self):
+        """إنشاء قالب ثابت الأبعاد مع تصميم متسق"""
+        html_content = """<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بطاقة أدبية</title>
+    <style>
+        /* الخط الثابت */
+        @font-face {
+            font-family: 'Amiri';
+            src: url('file:///app/assets/amiri.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        
+        /* إعادة الضبط */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* الجسم - أبعاد ثابتة */
+        body {
+            width: 1080px;
+            height: 1350px;
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            font-family: 'Amiri', serif;
+            color: #2c1e18;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* الهيدر الثابت */
+        .header {
+            height: 120px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-top: 30px;
+        }
+        
+        .header-line {
+            width: 400px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #bcaaa4, transparent);
+        }
+        
+        /* المساحة الرئيسية - ثابتة الطول */
+        .main-area {
+            flex: 1;
+            width: 100%;
+            padding: 0 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .text-container {
+            width: 100%;
+            max-width: 900px;
+            text-align: center;
+        }
+        
+        .text-content {
+            font-size: {{ font_size }}px;
+            font-weight: normal;
+            line-height: 2.0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            text-shadow: 0.5px 0.5px 0.5px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        
+        /* الفوتر الثابت */
+        .footer {
+            height: 220px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding-bottom: 40px;
+        }
+        
+        .footer-divider {
+            width: 500px;
+            height: 1px;
+            background: #d7ccc8;
+            margin-bottom: 25px;
+            position: relative;
+        }
+        
+        .footer-divider::before {
+            content: "❁";
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 0 15px;
+            color: #8d6e63;
+            font-size: 20px;
+        }
+        
+        .channel-name {
+            font-size: 32px;
+            font-weight: bold;
+            color: #3e2723;
+            margin-bottom: 12px;
+            letter-spacing: 1px;
+        }
+        
+        .channel-handle {
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 22px;
+            color: #0088cc;
+            font-weight: 600;
+            direction: ltr;
+            background: #f8f8f8;
+            padding: 10px 30px;
+            border-radius: 50px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        /* ضمان عدم التجاوز */
+        .overflow-guard {
+            max-height: 900px;
+            overflow-y: auto;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        .overflow-guard::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- الهيدر -->
+    <div class="header">
+        <div class="header-line"></div>
+    </div>
+    
+    <!-- المحتوى الرئيسي -->
+    <div class="main-area">
+        <div class="text-container">
+            <div class="overflow-guard">
+                <div class="text-content">{{ text }}</div>
             </div>
-
-            <div class="footer-container">
-                <div class="divider">
-                    <div class="line"></div>
-                    <div class="ornament">✦</div>
-                    <div class="line"></div>
-                </div>
-                <div class="brand-name">""" + CHANNEL_NAME + """</div>
-                <div class="handle-box">
-                    <svg class="telegram-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .24z"/>
-                    </svg>
-                    <span class="handle-text">""" + CHANNEL_HANDLE + """</span>
-                </div>
-            </div>
-
-        </body>
-        </html>
-        """
-        with open(os.path.join(self.template_dir, "card.html"), "w") as f:
+        </div>
+    </div>
+    
+    <!-- الفوتر -->
+    <div class="footer">
+        <div class="footer-divider"></div>
+        <div class="channel-name">{{ channel_name }}</div>
+        <div class="channel-handle">{{ channel_handle }}</div>
+    </div>
+</body>
+</html>"""
+        
+        template_file = Path(self.template_dir) / "card.html"
+        with open(template_file, 'w', encoding='utf-8') as f:
             f.write(html_content)
+        
+        logger.info("🎨 تم إنشاء قالب ثابت الأبعاد")
 
     async def render(self, text: str, message_id: int) -> str:
-        logger.info(f"🎨 Rendering Dynamic Height: {message_id}")
+        """تصميم بطاقة ثابتة الأبعاد"""
+        logger.info(f"🎨 جاري تصميم البطاقة #{message_id}")
         
-        text_len = len(text)
+        # تنظيف النص
+        cleaned_text = text.strip()
         
-        # معادلة ذكية لحجم الخط:
-        # النصوص الطويلة جداً (مثل القصائد) تحتاج خطاً متوسطاً (ليس صغيراً جداً) لتبقى مقروءة
-        if text_len < 50: font_size = 90
-        elif text_len < 150: font_size = 70
-        elif text_len < 300: font_size = 60
-        else: font_size = 55  # القصائد الطويلة تثبت على حجم 55
-
+        # معادلة ذكية لحجم الخط تحافظ على التنسيق
+        text_length = len(cleaned_text)
+        line_count = cleaned_text.count('\n') + 1
+        
+        if text_length < 50:
+            font_size = 75
+        elif text_length < 150:
+            font_size = 65
+        elif text_length < 300:
+            font_size = 55
+        elif text_length < 500:
+            font_size = 48
+        else:
+            # للنصوص الطويلة، نحسب بناءً على عدد الأسطر
+            if line_count > 15:
+                font_size = 40
+            else:
+                font_size = 44
+        
+        # تحميل القالب
         env = Environment(loader=FileSystemLoader(self.template_dir))
         template = env.get_template("card.html")
-        html_out = template.render(text=text, font_size=font_size)
         
-        output_path = os.path.join(self.output_dir, f"card_{message_id}.jpg")
+        html_out = template.render(
+            text=cleaned_text,
+            font_size=font_size,
+            channel_name=settings.CHANNEL_NAME,
+            channel_handle=settings.CHANNEL_HANDLE
+        )
+        
+        # مسار الملف الناتج
+        output_path = Path(self.output_dir) / f"card_{message_id}.jpg"
+        
+        try:
+            async with async_playwright() as p:
+                # إعداد المتصفح
+                browser = await p.chromium.launch(
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-setuid-sandbox'
+                    ]
+                )
+                
+                # إنشاء الصفحة بأبعاد ثابتة
+                page = await browser.new_page(
+                    viewport={
+                        'width': self.WIDTH,
+                        'height': self.HEIGHT
+                    }
+                )
+                
+                # تعيين المحتوى
+                await page.set_content(html_out)
+                
+                # انتظار تحميل الخطوط والصور
+                await page.wait_for_load_state('networkidle')
+                await page.wait_for_timeout(300)  # وقت إضافي للتأكد
+                
+                # التقاط الشاشة
+                await page.screenshot(
+                    path=str(output_path),
+                    type='jpeg',
+                    quality=95,
+                    full_page=False  # مهم: لا نستخدم full_page
+                )
+                
+                await browser.close()
+            
+            # التحقق من حجم الصورة
+            if output_path.exists():
+                file_size = output_path.stat().st_size / 1024  # بالكيلوبايت
+                logger.info(f"✅ تم إنشاء: {output_path} ({file_size:.1f} KB)")
+            else:
+                logger.error("❌ فشل إنشاء الملف")
+                raise FileNotFoundError("فشل إنشاء الصورة")
+            
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في التصميم: {e}")
+            raise
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(args=['--no-sandbox', '--disable-setuid-sandbox'])
-            # نفتح صفحة بعرض ثابت وطول افتراضي
-            page = await browser.new_page(viewport={'width': 1080, 'height': 1350})
+    def validate_output(self, image_path: str) -> bool:
+        """التحقق من جودة الصورة الناتجة"""
+        try:
+            from PIL import Image
+            img = Image.open(image_path)
             
-            await page.set_content(html_out)
-            await page.wait_for_timeout(100)
+            # التحقق من الأبعاد
+            if img.size != (1080, 1350):
+                logger.warning(f"❌ أبعاد غير صحيحة: {img.size}")
+                return False
             
-            # --- السحر هنا ---
-            # full_page=True: تخبر المتصفح أن يلتقط الصورة كاملة حتى لو كان هناك "سكرول"
-            await page.screenshot(path=output_path, type='jpeg', quality=95, full_page=True)
+            # التحقق من أن الصورة ليست فارغة
+            if img.getextrema() == ((0, 0), (0, 0), (0, 0)):
+                logger.warning("❌ الصورة فارغة")
+                return False
             
-            await browser.close()
+            return True
             
-        return output_path
+        except ImportError:
+            logger.warning("⚠️ Pillow غير مثبت، تخطي التحقق")
+            return True
+        except Exception as e:
+            logger.error(f"❌ خطأ في التحقق: {e}")
+            return False
+
+    def get_sample_text(self) -> str:
+        """نص تجريبي للاختبار"""
+        return """يا من ينامون على وسادة الأمل
+ويحلمون بغدٍ أجمل
+
+الليل يمر والنجوم تتلألأ
+والصباح آتٍ لا محالة
+
+لكل غيمةٍ شمسٌ تنتظرها
+ولكل حزنٍ فرحةٌ تقترب"""
+
+
+# استخدام للاختبار
+async def test_generator():
+    """دالة اختبار للمولد"""
+    generator = ImageGenerator()
+    
+    # نص اختبار
+    test_text = generator.get_sample_text()
+    
+    # توليد الصورة
+    try:
+        output = await generator.render(test_text, 999)
+        print(f"✅ تم إنشاء: {output}")
+        
+        # التحقق
+        if generator.validate_output(output):
+            print("✅ الصورة صالحة")
+        else:
+            print("⚠️ هناك مشكلة في الصورة")
+            
+    except Exception as e:
+        print(f"❌ فشل: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(test_generator())
