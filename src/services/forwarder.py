@@ -2,7 +2,7 @@ import logging
 import asyncio
 import redis.asyncio as redis
 from telegram import Bot
-from telegram.error import RetryAfter, Forbidden, BadRequest, ChatNotFound
+from telegram.error import RetryAfter, Forbidden, BadRequest
 from sqlalchemy import select, update, delete
 from src.database import AsyncSessionLocal
 from src.models import BotUser, TelegramChannel, TelegramGroup, BroadcastLog
