@@ -6,91 +6,108 @@ from src.config import settings
 from src.services.forwarder import ForwarderService
 from src.services.filters import FilterService
 from src.services.image_gen import ImageGenerator
+from src.services.content_manager import content
 
 logger = logging.getLogger(__name__)
 forwarder = ForwarderService()
 image_gen = ImageGenerator()
 
+# 🛡️ نظام الحماية الذاتية (ذاكرة مؤقتة)
+# يخزن أرقام الرسائل التي ولدها البوت لكي لا يعيد معالجتها
+_self_generated_ids = set()
+
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    معالج ذكي يدعم:
-    1. النشر الجديد.
-    2. الحذف عبر التعديل (Smart Delete).
-    3. الحذف عبر الأمر /del.
+    معالج القناة المصدر (النسخة المصححة والمحمية)
     """
+    if update.effective_chat.id != settings.MASTER_SOURCE_ID: return
     
-    # 1. التحقق من المصدر
-    if update.effective_chat.id != settings.MASTER_SOURCE_ID:
-        return
-    
-    # التقاط الرسالة (سواء كانت جديدة أو معدلة)
     message = update.channel_post or update.edited_channel_post
     is_edit = update.edited_channel_post is not None
     
     if not message: return
 
-    # --- 🔥 الميزة الجديدة: الحذف عبر التعديل ---
-    # إذا قام المشرف بتعديل الرسالة وكتب فيها "حذف" أو "x"
-    if is_edit:
-        text = message.text or message.caption or ""
-        if text.strip().lower() in ["حذف", "x", "delete", "."]:
-            logger.info(f"🗑️ Smart Delete triggered for msg: {message.message_id}")
-            
-            # 1. حذف النسخ الموزعة عند الناس
-            await forwarder.delete_broadcast(context.bot, message.message_id)
-            
-            # 2. حذف الرسالة الأصلية من القناة (تنظيف)
-            try: await message.delete()
-            except: pass
-            
-            return # انتهى العمل
-        else:
-            # إذا كان تعديلاً عادياً (تصحيح إملائي)، نتجاهله حالياً
-            # لأن تعديل الصور يتطلب إعادة إرسال، وهو مزعج للمشتركين
+    # 1. 🛡️ الحماية الذاتية: هل هذه الرسالة من صنعي؟
+    # نتجاهلها فوراً لمنع الحلقات اللانهائية
+    if message.message_id in _self_generated_ids:
+        return
+
+    # تنظيف الذاكرة إذا كبرت جداً
+    if len(_self_generated_ids) > 1000:
+        _self_generated_ids.clear()
+
+    # 2. 🛡️ حماية إضافية: فحص الكابشن (للتأكد)
+    if message.photo:
+        caption = message.caption or ""
+        if settings.CHANNEL_HANDLE in caption:
             return
 
-    # --- بقية الكود (النشر العادي وأمر /del) ---
-    
-    # تجاهل رسائل البوت نفسه
-    if message.from_user and message.from_user.id == context.bot.id: return
-    
-    # فلترة الإعلانات
-    if FilterService.is_ad(message): return
-    
-    # معالجة أمر الحذف التقليدي (/del) - (احتياطي)
-    if message.reply_to_message and message.text and message.text.strip() == "/del":
-        target_msg_id = message.reply_to_message.message_id
-        logger.info(f"🗑️ Command /del received for msg: {target_msg_id}")
-        try: await message.reply_to_message.delete()
-        except: pass
-        try: await message.delete()
-        except: pass
-        await forwarder.delete_broadcast(context.bot, target_msg_id)
-        return
-    
-    # النشر العادي (للمنشورات الجديدة فقط)
-    if not is_edit:
-        is_text = (message.text is not None) and (not message.photo) and (not message.video)
-        text = message.text or ""
+    # 3. ✏️ معالجة التعديلات (الحذف أو التحديث)
+    if is_edit:
+        text = message.text or message.caption or ""
+        # أ) أمر الحذف
+        if text.strip().lower() in ["حذف", "x", "delete", "."]:
+            logger.info(f"🗑️ Smart Delete triggered: {message.message_id}")
+            await forwarder.delete_broadcast(context.bot, message.message_id)
+            try: await message.delete()
+            except: pass
+            return
+        
+        # ب) تعديل المحتوى (نسمح به الآن لإنشاء بطاقة جديدة)
+        logger.info(f"✏️ Edit detected, regenerating art for: {message.message_id}")
+        # نكمل الكود للأسفل ليتم التصميم من جديد...
 
-        if is_text and 5 < len(text) < 5000:
+    # 4. الفلترة الأمنية
+    if message.from_user and message.from_user.id == context.bot.id: return
+    if FilterService.is_ad(message): return
+
+    # 5. المنطق الرئيسي (التصميم والنشر)
+    is_text = (message.text is not None) and (not message.photo) and (not message.video)
+    text = message.text or ""
+
+    # أ) مسار النصوص (تصميم)
+    if is_text and 5 < len(text) < 5000:
+        try:
+            # تصميم الصورة
+            image_path = await image_gen.render(text, message.message_id)
+            
+            # استخراج المقتطف للكابشن
+            lines = [line for line in text.split('\n') if line.strip()]
+            excerpt = lines[0] if lines else "مقتطف"
+            if len(excerpt) > 60: excerpt = excerpt[:57] + "..."
+            
+            final_caption = content.get("art.caption", excerpt=excerpt)
+            
+            # الإرسال للقناة (بدون Reply لتجنب التكرار)
+            with open(image_path, 'rb') as f:
+                sent = await context.bot.send_photo(
+                    chat_id=settings.MASTER_SOURCE_ID,
+                    photo=f,
+                    caption=final_caption
+                    # ❌ تم حذف reply_to_message_id لمنع الازدواجية
+                )
+            
+            # تسجيل الرسالة الجديدة في الحماية الذاتية
+            _self_generated_ids.add(sent.message_id)
+            
+            # التوزيع الفوري
             try:
-                path = await image_gen.render(text, message.message_id)
-                caption = text.split('\n')[0][:97] + "..."
-                
-                with open(path, 'rb') as f:
-                    sent = await context.bot.send_photo(
-                        chat_id=settings.MASTER_SOURCE_ID,
-                        photo=f,
-                        caption=caption,
-                        reply_to_message_id=message.message_id
-                    )
-                
                 await forwarder.broadcast_message(context.bot, sent.message_id)
-                os.remove(path)
-                
             except Exception as e:
-                logger.error(f"Art Error: {e}")
-                await forwarder.broadcast_message(context.bot, message.message_id)
-        else:
+                logger.error(f"Broadcast Error: {e}")
+            
+            # تنظيف
+            os.remove(image_path)
+            
+            # (اختياري) حذف النص الأصلي لتبقى القناة نظيفة (تحتوي صوراً فقط)
+            # try: await message.delete()
+            # except: pass
+            
+        except Exception as e:
+            logger.error(f"Art Generation Failed: {e}")
+            # في حال الفشل، نوزع النص
             await forwarder.broadcast_message(context.bot, message.message_id)
+
+    # ب) مسار الميديا الجاهزة
+    else:
+        await forwarder.broadcast_message(context.bot, message.message_id)
