@@ -1,5 +1,5 @@
 import logging
-import os
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.config import settings
@@ -12,25 +12,29 @@ logger = logging.getLogger(__name__)
 forwarder = ForwarderService()
 image_gen = ImageGenerator()
 
-_self_generated_ids = set()
-
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != settings.MASTER_SOURCE_ID: return
     
     message = update.channel_post or update.edited_channel_post
     is_edit = update.edited_channel_post is not None
+    
     if not message: return
 
-    # 1. منع التكرار (الذاكرة)
-    if message.message_id in _self_generated_ids: return
-    if len(_self_generated_ids) > 1000: _self_generated_ids.clear()
+    # --- 1. الحماية من التكرار (Redis Check) ---
+    # نفحص هل هذا المنشور مسجل في Redis كـ "منشور تم إنشاؤه بواسطة البوت"؟
+    # المفتاح: bot_gen:{message_id}
+    is_self_generated = await forwarder.redis.exists(f"bot_gen:{message.message_id}")
+    if is_self_generated:
+        logger.info(f"🛑 Ignoring self-generated message (Redis): {message.message_id}")
+        return
 
-    # 2. منع التكرار (الكابشن)
+    # حماية إضافية: فحص الكابشن
     if message.photo:
         caption = message.caption or ""
-        if settings.CHANNEL_HANDLE.replace("@", "") in caption: return
+        if settings.CHANNEL_HANDLE.replace("@", "") in caption:
+            return
 
-    # 3. الحذف الذكي
+    # --- 2. معالجة الحذف ---
     if is_edit:
         text = message.text or message.caption or ""
         if text.strip().lower() in ["حذف", "x", "delete", "."]:
@@ -49,11 +53,12 @@ async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except: pass
         return
 
-    # 4. النشر
+    # --- 3. الفلترة ---
     if message.from_user and message.from_user.id == context.bot.id: return
     if FilterService.is_ad(message): return
 
-    is_text = (message.text is not None) and (not message.photo)
+    # --- 4. النشر والتصميم ---
+    is_text = (message.text is not None) and (not message.photo) and (not message.video)
     text = message.text or ""
 
     if is_text and 5 < len(text) < 5000:
@@ -71,11 +76,16 @@ async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     caption=final_caption
                 )
             
-            _self_generated_ids.add(sent.message_id)
+            # 🔥 تسجيل الرسالة الجديدة في Redis لمدة 24 ساعة
+            # هذا يمنع البوت من إعادة معالجتها حتى لو أعدت تشغيله
+            await forwarder.redis.set(f"bot_gen:{sent.message_id}", "1", ex=86400)
+            
+            # توزيع الصورة
             await forwarder.broadcast_message(context.bot, sent.message_id)
             os.remove(image_path)
+            
         except Exception as e:
-            logger.error(f"Art Failed: {e}")
+            logger.error(f"Art Failed: {e}", exc_info=True)
             await forwarder.broadcast_message(context.bot, message.message_id)
     else:
         await forwarder.broadcast_message(context.bot, message.message_id)
