@@ -1,3 +1,5 @@
+#--- START OF FILE telegram_broadcast_bot-main/src/services/forwarder.py ---
+
 import logging
 import asyncio
 import redis.asyncio as redis
@@ -36,11 +38,11 @@ class ForwarderService:
         tasks = [self._safe_copy(bot, chat_id, settings.MASTER_SOURCE_ID, msg_id, model, id_col) for chat_id in batch]
         results = await asyncio.gather(*tasks)
         
-        # تسجيل الرسائل الناجحة في BroadcastLog لتمكين الحذف مستقبلاً
+        # تسجيل الرسائل الناجحة
         async with AsyncSessionLocal() as session:
             logs = []
             for res in results:
-                if res: # res = (target_chat_id, target_msg_id)
+                if res: 
                     logs.append(BroadcastLog(source_msg_id=msg_id, target_chat_id=res[0], target_msg_id=res[1]))
             if logs:
                 session.add_all(logs)
@@ -53,14 +55,15 @@ class ForwarderService:
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after)
             return await self._safe_copy(bot, chat_id, from_chat, msg_id, model, id_col)
-        except (Forbidden, ChatNotFound):
-            await self._deactivate(model, id_col, chat_id, "Forbidden")
+        # ✅ THE FIX: استبدال ChatNotFound بـ BadRequest
+        except (Forbidden, BadRequest) as e:
+            # إذا كان الخطأ أن الشات غير موجود أو تم طرد البوت
+            err_msg = str(e).lower()
+            if isinstance(e, Forbidden) or "chat not found" in err_msg or "kicked" in err_msg:
+                await self._deactivate(model, id_col, chat_id, "Inactive")
             return None
-        except BadRequest as e:
-            if "chat not found" in str(e).lower():
-                await self._deactivate(model, id_col, chat_id, "Chat Not Found")
-            return None
-        except Exception:
+        except Exception as e:
+            logger.error(f"⚠️ Broadcast Error for {chat_id}: {e}")
             return None
 
     async def _deactivate(self, model, id_col, chat_id, reason):
@@ -71,14 +74,12 @@ class ForwarderService:
         except: pass
 
     async def delete_broadcast(self, bot: Bot, source_msg_id: int):
-        """حذف الرسالة من جميع الوجهات"""
         logger.info(f"🗑️ Deleting broadcast for source: {source_msg_id}")
         async with AsyncSessionLocal() as session:
             stmt = select(BroadcastLog).where(BroadcastLog.source_msg_id == source_msg_id)
             logs = await session.scalars(stmt)
             tasks = [self._safe_delete(bot, log.target_chat_id, log.target_msg_id) for log in logs]
             await asyncio.gather(*tasks)
-            # تنظيف السجل
             await session.execute(delete(BroadcastLog).where(BroadcastLog.source_msg_id == source_msg_id))
             await session.commit()
 
