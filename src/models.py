@@ -1,5 +1,5 @@
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import BigInteger, Boolean, DateTime, String, ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import BigInteger, Boolean, DateTime, String, ForeignKey, Integer
 from datetime import datetime
 
 class Base(DeclarativeBase):
@@ -28,3 +28,13 @@ class TelegramGroup(Base):
     added_by_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("bot_users.user_id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+# --- الجدول الجديد: سجل الرسائل ---
+class BroadcastLog(Base):
+    __tablename__ = "broadcast_logs"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_msg_id: Mapped[int] = mapped_column(BigInteger, index=True) # رقم الرسالة في القناة الأم
+    target_chat_id: Mapped[int] = mapped_column(BigInteger, index=True) # أين أرسلناها؟
+    target_msg_id: Mapped[int] = mapped_column(BigInteger) # ما هو رقمها هناك؟
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
