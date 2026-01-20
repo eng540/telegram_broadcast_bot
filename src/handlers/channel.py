@@ -1,4 +1,4 @@
---- START OF FILE telegram_broadcast_bot-main/src/handlers/channel.py ---
+#--- START OF FILE telegram_broadcast_bot-main/src/handlers/channel.py ---
 
 import logging
 import os
