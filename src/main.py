@@ -1,3 +1,5 @@
+#--- START OF FILE telegram_broadcast_bot-main/src/main.py ---
+
 import logging
 from telegram import Update, BotCommand
 from telegram.ext import Application, ChatMemberHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
@@ -8,7 +10,8 @@ from src.database import init_db
 from src.handlers.users import start_command, handle_private_design, help_channel_callback
 from src.handlers.groups import track_chats
 from src.handlers.channel import handle_source_post
-from src.handlers.admin import stats_command
+# تم إضافة backup_command و restore_handler لأنك طلبت ميزة النسخ الاحتياطي
+from src.handlers.admin import stats_command, backup_command, restore_handler
 
 # إعداد السجلات
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -22,7 +25,8 @@ async def post_init(app: Application):
     await app.bot.set_my_commands([
         BotCommand("start", "تفعيل البوت / القائمة الرئيسية"),
         BotCommand("help", "المساعدة"),
-        BotCommand("stats", "الإحصائيات (للمدير)")
+        BotCommand("stats", "الإحصائيات (للمدير)"),
+        BotCommand("backup", "نسخة احتياطية (للمدير)")
     ])
 
     logger.info("🛡️ System Ready. All Modules Loaded Successfully.")
@@ -34,21 +38,26 @@ def main():
     # 1. المعالجات العامة (General Handlers)
     application.add_handler(CommandHandler("start", start_command))
 
-    # 2. معالج الأزرار التفاعلية (Callback Query) - هام لزر المساعدة الجديد
+    # 2. معالج الأزرار التفاعلية
     application.add_handler(CallbackQueryHandler(help_channel_callback, pattern="how_to_channel"))
 
     # 3. ميزة "صمم لي" (في الخاص فقط)
-    # الفلتر: خاص + نص + ليس أمراً
     application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_private_design))
 
     # 4. معالج المجموعات (تتبع الدخول والخروج)
     application.add_handler(ChatMemberHandler(track_chats, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    # 5. معالج المدير
+    # 5. معالجات المدير (الإحصائيات + النسخ الاحتياطي + الاستعادة)
     application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("backup", backup_command))
+    
+    # معالج استلام ملف النسخة الاحتياطية (JSON فقط + من المدير فقط)
+    application.add_handler(MessageHandler(
+        filters.Document.MimeType("application/json") & filters.User(settings.ADMIN_ID),
+        restore_handler
+    ))
 
     # 6. القناة المصدر (النشر والتوزيع)
-    # 🔄 التحديث: دعم المنشورات العادية والمعدلة
     application.add_handler(MessageHandler(
         filters.Chat(settings.MASTER_SOURCE_ID) & 
         (filters.UpdateType.CHANNEL_POST | filters.UpdateType.EDITED_CHANNEL_POST),
