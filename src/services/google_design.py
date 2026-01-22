@@ -14,16 +14,15 @@ class GoogleDesignService:
     def __init__(self):
         self.client = None
         if settings.GOOGLE_API_KEY:
-            # استخدام العميل الجديد حسب الوثائق
             self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-            # النموذج الأقوى (Nano Banana Pro)
-            self.model_name = "gemini-2.0-flash-exp" # يمكن تغييرها لـ gemini-3-pro-image-preview عند توفره للعامة
+            # ✅ THE FIX: استخدام نموذج Imagen 3 المخصص للصور بدلاً من Flash
+            self.model_name = "imagen-3.0-generate-001"
         else:
             logger.critical("❌ GOOGLE_API_KEY is missing! Google Design Service Disabled.")
 
     async def generate_design(self, text: str, message_id: int) -> str:
         """
-        يستخدم Nano Banana Pro لتوليد صورة وكتابة النص عليها
+        يستخدم Imagen 3 لتوليد صورة وكتابة النص عليها
         """
         if not self.client:
             return None
@@ -32,60 +31,53 @@ class GoogleDesignService:
 
         # هندسة الأمر (Prompt) لتفعيل قدرات الكتابة
         prompt = f"""
-        Create a professional, high-resolution poster (2K resolution).
+        Design a professional social media poster.
         
         1. VISUAL STYLE:
-           A cinematic, artistic background reflecting the mood of this text: "{text}".
+           A cinematic, artistic background reflecting the mood of this Arabic text: "{text}".
            Use Islamic geometric patterns, soft lighting, or moody nature.
            
         2. TEXT RENDERING (MANDATORY):
            You MUST write the following Arabic text clearly in the center:
            "{text}"
            
-           - Font Style: Elegant Arabic Calligraphy (Thuluth or Diwani).
+           - Font Style: Elegant Arabic Calligraphy.
            - Color: Gold or White (High contrast against background).
-           - Legibility: The text must be 100% readable and correct.
+           - Legibility: The text must be 100% readable.
         """
 
         try:
-            # تشغيل الدالة في Thread منفصل لأن المكتبة الجديدة قد تكون متزامنة
+            # تشغيل الدالة في Thread منفصل
             def call_google():
-                return self.client.models.generate_content(
+                # ✅ THE FIX: استخدام generate_images المخصصة لنماذج Imagen
+                return self.client.models.generate_images(
                     model=self.model_name,
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        response_modalities=['IMAGE'],
-                        image_config=types.ImageConfig(
-                            aspect_ratio="3:4",
-                            # image_size="2K" # ملاحظة: بعض النماذج التجريبية قد لا تدعم هذا الباراميتر بعد، يمكن تفعيله لاحقاً
-                        )
+                    prompt=prompt,
+                    config=types.GenerateImagesConfig(
+                        number_of_images=1,
+                        aspect_ratio="3:4",
+                        person_generation="DONT_ALLOW",
+                        safety_filter_level="BLOCK_MEDIUM_AND_ABOVE"
                     )
                 )
 
             # التنفيذ غير المتزامن
             response = await asyncio.to_thread(call_google)
 
-            # معالجة الرد
-            # في التحديثات الأخيرة قد يكون الرد في parts أو مباشرة
-            if hasattr(response, 'parts'):
-                parts = response.parts
-            else:
-                parts = [] # Fallback logic
-
-            for part in parts:
-                if part.inline_data:
-                    # تحويل البيانات الخام إلى صورة
-                    image_data = part.inline_data.data 
-                    image = Image.open(BytesIO(image_data))
-                    
-                    # حفظ الصورة
-                    output_dir = "/app/data"
-                    os.makedirs(output_dir, exist_ok=True)
-                    output_path = os.path.join(output_dir, f"design_{message_id}.png")
-                    
-                    image.save(output_path)
-                    logger.info("✅ Nano Banana Design Created Successfully.")
-                    return output_path
+            # معالجة الرد (Imagen يعيد generated_images مباشرة)
+            if response.generated_images:
+                image_bytes = response.generated_images[0].image.image_bytes
+                
+                # حفظ الصورة
+                output_dir = "/app/data"
+                os.makedirs(output_dir, exist_ok=True)
+                output_path = os.path.join(output_dir, f"design_{message_id}.png")
+                
+                with open(output_path, "wb") as f:
+                    f.write(image_bytes)
+                
+                logger.info("✅ Nano Banana (Imagen 3) Design Created Successfully.")
+                return output_path
             
             logger.warning("⚠️ No image found in response.")
             return None
