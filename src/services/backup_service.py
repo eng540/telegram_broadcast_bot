@@ -1,10 +1,13 @@
+#--- START OF FILE telegram_broadcast_bot-main/src/services/backup_service.py ---
+
 import json
 import os
 import logging
 from datetime import datetime
 from sqlalchemy import select
 from src.database import AsyncSessionLocal
-from src.models import BotUser, TelegramChannel, TelegramGroup, ScheduledPost, BroadcastLog
+# ✅ تم إزالة ScheduledPost من هنا
+from src.models import BotUser, TelegramChannel, TelegramGroup, BroadcastLog
 
 logger = logging.getLogger("BackupService")
 
@@ -14,7 +17,7 @@ class BackupService:
         os.makedirs(self.backup_dir, exist_ok=True)
 
     async def create_backup(self) -> str:
-        """إنشاء ملف JSON يحتوي على كل بيانات النظام"""
+        """إنشاء ملف JSON يحتوي على بيانات النظام (بدون الجدولة)"""
         data = {
             "meta": {
                 "version": "1.0",
@@ -23,8 +26,7 @@ class BackupService:
             },
             "users": [],
             "channels": [],
-            "groups": [],
-            "scheduled_posts": []
+            "groups": []
         }
 
         async with AsyncSessionLocal() as session:
@@ -61,19 +63,6 @@ class BackupService:
                     "joined_at": g.joined_at.isoformat() if g.joined_at else None
                 })
 
-            # 4. نسخ المنشورات المجدولة
-            # (تأكد من أنك أضفت جدول ScheduledPost في models.py كما اتفقنا سابقاً)
-            try:
-                posts = await session.scalars(select(ScheduledPost))
-                for p in posts:
-                    data["scheduled_posts"].append({
-                        "content_text": p.content_text,
-                        "publish_at": p.publish_at.isoformat(),
-                        "is_posted": p.is_posted
-                    })
-            except:
-                logger.warning("ScheduledPost table not found or empty.")
-
         # حفظ الملف
         filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = os.path.join(self.backup_dir, filename)
@@ -91,7 +80,7 @@ class BackupService:
         except Exception as e:
             return f"❌ فشل قراءة الملف: {e}"
 
-        stats = {"users": 0, "channels": 0, "groups": 0, "posts": 0}
+        stats = {"users": 0, "channels": 0, "groups": 0}
         
         async with AsyncSessionLocal() as session:
             # 1. استعادة المستخدمين
@@ -133,23 +122,11 @@ class BackupService:
                     ))
                     stats["groups"] += 1
             
-            # 4. استعادة الجدولة
-            # هنا نضيف المنشورات فقط إذا لم تكن موجودة (بناءً على النص والتاريخ)
-            # أو يمكننا إضافتها دائماً. للأمان، سنضيفها.
-            for p_data in data.get("scheduled_posts", []):
-                session.add(ScheduledPost(
-                    content_text=p_data["content_text"],
-                    publish_at=datetime.fromisoformat(p_data["publish_at"]),
-                    is_posted=p_data.get("is_posted", False)
-                ))
-                stats["posts"] += 1
-
             await session.commit()
             
         return (
             f"✅ تمت الاستعادة بنجاح!\n"
             f"👤 مستخدمين جدد: {stats['users']}\n"
             f"📢 قنوات جديدة: {stats['channels']}\n"
-            f"🏘️ مجموعات جديدة: {stats['groups']}\n"
-            f"📅 منشورات مجدولة: {stats['posts']}"
+            f"🏘️ مجموعات جديدة: {stats['groups']}"
         )
