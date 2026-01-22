@@ -15,73 +15,81 @@ class GoogleDesignService:
         self.client = None
         if settings.GOOGLE_API_KEY:
             self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-            # ✅ THE FIX: استخدام نموذج Imagen 3 المخصص للصور بدلاً من Flash
-            self.model_name = "imagen-3.0-generate-001"
+            # ✅ THE FIX: استخدام الموديل الصحيح (Nano Banana Pro) المذكور في الوثائق
+            # هذا الموديل يدعم "التفكير" وكتابة النصوص بدقة عالية
+            self.model_name = "gemini-3-pro-image-preview"
         else:
             logger.critical("❌ GOOGLE_API_KEY is missing! Google Design Service Disabled.")
 
     async def generate_design(self, text: str, message_id: int) -> str:
         """
-        يستخدم Imagen 3 لتوليد صورة وكتابة النص عليها
+        يستخدم Gemini 3 Pro (Nano Banana Pro) لتوليد صورة وكتابة النص عليها
         """
         if not self.client:
             return None
 
-        logger.info(f"🍌 Nano Banana Thinking: {text[:30]}...")
+        logger.info(f"🍌 Nano Banana Pro Thinking: {text[:30]}...")
 
         # هندسة الأمر (Prompt) لتفعيل قدرات الكتابة
         prompt = f"""
-        Design a professional social media poster.
+        Create a high-fidelity, artistic social media card.
         
-        1. VISUAL STYLE:
-           A cinematic, artistic background reflecting the mood of this Arabic text: "{text}".
-           Use Islamic geometric patterns, soft lighting, or moody nature.
+        1. THEME:
+           A cinematic, deep, and emotional background reflecting this text: "{text}".
+           Style: Abstract art, watercolor, or Islamic geometry. Soft, warm lighting.
            
-        2. TEXT RENDERING (MANDATORY):
-           You MUST write the following Arabic text clearly in the center:
+        2. TEXT RENDERING (CRITICAL):
+           Render the following Arabic text exactly as written in the center of the image:
            "{text}"
            
-           - Font Style: Elegant Arabic Calligraphy.
-           - Color: Gold or White (High contrast against background).
-           - Legibility: The text must be 100% readable.
+           - Font: Calligraphic, Elegant, Arabic style.
+           - Color: High contrast (Gold, White, or Black) ensuring 100% readability.
         """
 
         try:
             # تشغيل الدالة في Thread منفصل
             def call_google():
-                # ✅ THE FIX: استخدام generate_images المخصصة لنماذج Imagen
-                return self.client.models.generate_images(
+                # ✅ استخدام generate_content كما في وثائق Nano Banana
+                return self.client.models.generate_content(
                     model=self.model_name,
-                    prompt=prompt,
-                    config=types.GenerateImagesConfig(
-                        number_of_images=1,
-                        aspect_ratio="3:4",
-                        person_generation="DONT_ALLOW",
-                        safety_filter_level="BLOCK_MEDIUM_AND_ABOVE"
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE"], # طلب صورة صراحة
+                        safety_settings=[ # إعدادات الأمان لضمان عدم حجب القصائد
+                            types.SafetySetting(
+                                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                threshold="BLOCK_ONLY_HIGH"
+                            ),
+                            types.SafetySetting(
+                                category="HARM_CATEGORY_HATE_SPEECH",
+                                threshold="BLOCK_ONLY_HIGH"
+                            ),
+                        ]
                     )
                 )
 
             # التنفيذ غير المتزامن
             response = await asyncio.to_thread(call_google)
 
-            # معالجة الرد (Imagen يعيد generated_images مباشرة)
-            if response.generated_images:
-                image_bytes = response.generated_images[0].image.image_bytes
-                
-                # حفظ الصورة
-                output_dir = "/app/data"
-                os.makedirs(output_dir, exist_ok=True)
-                output_path = os.path.join(output_dir, f"design_{message_id}.png")
-                
-                with open(output_path, "wb") as f:
-                    f.write(image_bytes)
-                
-                logger.info("✅ Nano Banana (Imagen 3) Design Created Successfully.")
-                return output_path
+            # معالجة الرد (حسب هيكل Nano Banana في الوثائق)
+            for part in response.parts:
+                if part.inline_data:
+                    image_data = part.inline_data.data
+                    image = Image.open(BytesIO(image_data))
+                    
+                    # حفظ الصورة
+                    output_dir = "/app/data"
+                    os.makedirs(output_dir, exist_ok=True)
+                    output_path = os.path.join(output_dir, f"design_{message_id}.png")
+                    
+                    image.save(output_path)
+                    logger.info("✅ Nano Banana Pro Design Created Successfully.")
+                    return output_path
             
             logger.warning("⚠️ No image found in response.")
             return None
 
         except Exception as e:
             logger.error(f"❌ Nano Banana Failed: {e}")
+            # إذا فشل الموديل الجديد، سيعود النظام تلقائياً لـ HTML Renderer
             return None
