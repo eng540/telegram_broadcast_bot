@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     # المفاتيح السرية
@@ -7,8 +8,11 @@ class Settings(BaseSettings):
     MASTER_SOURCE_ID: int
     DATABASE_URL: str
     REDIS_URL: str
+    
+    # ✅ مفتاح API الجديد (Google GenAI)
+    GOOGLE_API_KEY: Optional[str] = None
 
-    # الهوية البصرية (Default Values)
+    # الهوية البصرية
     CHANNEL_NAME: str = "روائع من الأدب العربي"
     CHANNEL_HANDLE: str = "@Rwaea3"
     CHANNEL_LINK: str = "https://t.me/Rwaea3"
