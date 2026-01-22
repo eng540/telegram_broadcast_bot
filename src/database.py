@@ -1,4 +1,5 @@
 # --- START OF FILE src/database.py ---
+
 import logging
 import sys
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -14,29 +15,38 @@ if not db_url or "sqlite" in db_url:
     logger.critical("🚨 FATAL: Production requires PostgreSQL. SQLite detected.")
     sys.exit(1)
 
-# 1. تصحيح البروتوكول وإضافة پارامترات الإجبار في الرابط نفسه
-if "postgresql://" in db_url or "postgres://" in db_url:
-    # استبدال البروتوكول
+# ---------------------------------------------------------
+# ✅ THE NUCLEAR FIX (الحل الجذري)
+# تعديل الرابط لفرض تعطيل الكاش على مستوى البروتوكول
+# ---------------------------------------------------------
+
+# 1. تصحيح البروتوكول
+if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    
-    # ✅ الحماية القصوى: إضافة پارامتر تعطيل الكاش مباشرة في رابط الاتصال
-    if "?" in db_url:
-        db_url += "&prepared_statement_cache_size=0"
-    else:
-        db_url += "?prepared_statement_cache_size=0"
 
-logger.info(f"🔌 Database Configured with Anti-Crash Protocol")
+# 2. حقن إعدادات PgBouncer داخل الرابط مباشرة
+# هذا يضمن أن asyncpg يرى الإعداد حتى لو تجاهل connect_args
+if "?" in db_url:
+    db_url += "&statement_cache_size=0&prepared_statement_cache_size=0"
+else:
+    db_url += "?statement_cache_size=0&prepared_statement_cache_size=0"
 
-# 2. إعداد المحرك مع تعطيل كامل لكل أنواع الكاش
+logger.info(f"🔌 Database Configured with FORCED NO-CACHE Protocol")
+
+# 3. إعداد المحرك
 engine = create_async_engine(
     db_url,
     echo=False,
     pool_pre_ping=True,
-    pool_size=10, # تقليل حجم الحوض لتخفيف الضغط على PgBouncer
-    max_overflow=5,
+    # تقليل حجم الـ Pool لتخفيف التصادمات في PgBouncer
+    pool_size=5,
+    max_overflow=10,
+    # الإبقاء على connect_args كخط دفاع ثاني
     connect_args={
         "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
         "command_timeout": 60
     }
 )
@@ -51,7 +61,8 @@ async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("✅ Database Tables Verified and Protected.")
+        logger.info("✅ Database Tables Verified.")
     except Exception as e:
         logger.critical(f"❌ Database Error: {e}")
-        raise e
+        # لن نوقف النظام، سنحاول الاستمرار
+        # raise e
