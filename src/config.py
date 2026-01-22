@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     
     # ✅ مفتاح API الجديد (Google GenAI)
     GOOGLE_API_KEY: Optional[str] = None
-
+    HUGGINGFACE_TOKEN: Optional[str] = None
     # الهوية البصرية
     CHANNEL_NAME: str = "روائع من الأدب العربي"
     CHANNEL_HANDLE: str = "@Rwaea3"
