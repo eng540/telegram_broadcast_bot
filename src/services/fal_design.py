@@ -10,11 +10,11 @@ class FalDesignService:
     def __init__(self):
         if not settings.FAL_KEY: return
         os.environ["FAL_KEY"] = settings.FAL_KEY
-        # ✅ التغيير الجوهري: استخدام أرخص وأسرع نموذج
+        # ✅ نستخدم أرخص نموذج (Flux Schnell) بناءً على تحليل الفاتورة
         self.model_endpoint = "fal-ai/flux/schnell"
 
     async def generate_background(self, text: str) -> str:
-        """توليد خلفية فنية فقط (بدون نص) بتكلفة منخفضة"""
+        """توليد خلفية فنية فقط (بدون نص) بتكلفة شبه معدومة"""
         logger.info(f"🎨 Fal.ai (Schnell) generating background...")
         
         # نطلب خلفية فنية تناسب النص
@@ -32,7 +32,7 @@ class FalDesignService:
                     arguments={
                         "prompt": prompt,
                         "image_size": "portrait_4_3",
-                        "num_inference_steps": 4, # Schnell يحتاج خطوات قليلة (توفير وقت ومال)
+                        "num_inference_steps": 4, # Schnell سريع جداً ويكتفي بـ 4 خطوات
                         "enable_safety_checker": True
                     },
                     with_logs=True
