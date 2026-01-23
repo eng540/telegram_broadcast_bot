@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     
     # ✅ مفتاح Fal.ai (إلزامي الآن)
     FAL_KEY: str
+    # مفتاح Hugging Face (المجاني)
+    HUGGINGFACE_TOKEN: Optional[str] = None
 
     # الهوية
     CHANNEL_NAME: str = "روائع من الأدب العربي"
@@ -21,3 +23,4 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
