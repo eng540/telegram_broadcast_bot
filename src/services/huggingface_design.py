@@ -14,8 +14,9 @@ class HuggingFaceDesignService:
         self.client = None
         
         if self.token:
-            # ✅ استخدام FLUX Schnell (مفتوح، سريع، ولا يسبب 403 عادة)
-            self.model_name = "black-forest-labs/FLUX.1-schnell"
+            # ✅ التغيير الاستراتيجي: استخدام SDXL Base 1.0
+            # هذا الموديل هو "ملك" الاستقرار والمجانية والجودة العالية
+            self.model_name = "stabilityai/stable-diffusion-xl-base-1.0"
             self.client = InferenceClient(token=self.token)
         else:
             logger.warning("⚠️ Token Missing.")
@@ -23,10 +24,11 @@ class HuggingFaceDesignService:
     async def generate_design(self, text: str, message_id: int) -> str:
         if not self.client: return None
 
-        logger.info(f"🎨 AI Imagining (FLUX): {text[:30]}...")
+        logger.info(f"🎨 AI Imagining (SDXL): {text[:30]}...")
 
-        # ترجمة الأمر للإنجليزية لضمان فهم الموديل
-        prompt = f"poster design, arabic calligraphy, text concept: '{text}', cinematic lighting, 8k resolution, islamic geometric patterns, masterpiece"
+        # تحسين هندسة الأمر ليتناسب مع SDXL
+        # يفضل دائماً استخدام وصف "Soft, Cinematic, Arabic Art"
+        prompt = f"Islamic art poster, cinematic lighting, soft colors, beige and gold palette, arabic calligraphy concept, masterpiece, 8k resolution, highly detailed background for text: {text}"
 
         try:
             def call_api():
@@ -35,23 +37,22 @@ class HuggingFaceDesignService:
                     model=self.model_name
                 )
 
-            # مهلة 40 ثانية
+            # مهلة 45 ثانية لأن SDXL قد يأخذ وقتاً للإبداع
             image = await asyncio.wait_for(
                 asyncio.to_thread(call_api),
-                timeout=40.0
+                timeout=45.0
             )
             
             if image:
                 output_dir = "/app/data"
                 os.makedirs(output_dir, exist_ok=True)
-                output_path = os.path.join(output_dir, f"flux_{message_id}.png")
+                output_path = os.path.join(output_dir, f"sdxl_{message_id}.png")
                 image.save(output_path)
-                logger.info("✅ FLUX Image Generated.")
+                logger.info("✅ SDXL Image Generated Successfully.")
                 return output_path
             
             return None
 
         except Exception as e:
-            # إذا فشل (مثل 403)، يسجل الخطأ ويكمل بسلام
             logger.error(f"❌ AI Error: {e}")
             return None
