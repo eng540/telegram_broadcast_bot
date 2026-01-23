@@ -14,67 +14,44 @@ class HuggingFaceDesignService:
         self.client = None
         
         if self.token:
-            try:
-                self.client = InferenceClient(token=self.token)
-                # ✅ استخدام موديل FLUX السريع والقوي جداً
-                self.model_name = "black-forest-labs/FLUX.1-schnell"
-                logger.info(f"✅ AI Engine Ready: {self.model_name}")
-            except Exception as e:
-                logger.error(f"❌ Failed to init AI Client: {e}")
+            # ✅ استخدام FLUX Schnell (مفتوح، سريع، ولا يسبب 403 عادة)
+            self.model_name = "black-forest-labs/FLUX.1-schnell"
+            self.client = InferenceClient(token=self.token)
         else:
-            logger.warning("⚠️ HUGGINGFACE_TOKEN is missing in .env")
+            logger.warning("⚠️ Token Missing.")
 
     async def generate_design(self, text: str, message_id: int) -> str:
-        """
-        توليد صورة فنية للنص
-        """
-        if not self.client:
-            logger.warning("⏩ AI Client not ready. Skipping to HTML...")
-            return None
+        if not self.client: return None
 
-        logger.info(f"🎨 AI Imagining: {text[:30]}...")
+        logger.info(f"🎨 AI Imagining (FLUX): {text[:30]}...")
 
-        # 1. هندسة الأمر (Prompt Engineering)
-        # نحول الطلب إلى إنجليزية وصفية لأن الموديل يفهمها بدقة أكبر للرسم
-        prompt = f"""
-        A cinematic poster design featuring Arabic calligraphy.
-        Center text content (concept): "{text}".
-        Style: Islamic geometric patterns, golden texture, dark elegant background (navy blue or black), 
-        soft volumetric lighting, 8k resolution, photorealistic, masterpiece.
-        The text should be integrated artistically.
-        """
+        # ترجمة الأمر للإنجليزية لضمان فهم الموديل
+        prompt = f"poster design, arabic calligraphy, text concept: '{text}', cinematic lighting, 8k resolution, islamic geometric patterns, masterpiece"
 
         try:
-            # 2. التوليد (في Thread منفصل لمنع تجميد البوت)
             def call_api():
                 return self.client.text_to_image(
                     prompt=prompt,
-                    model=self.model_name,
-                    # FLUX سريع جداً، 4 خطوات تكفي
-                    num_inference_steps=4,
-                    guidance_scale=3.5
+                    model=self.model_name
                 )
 
-            # نعطيه مهلة 30 ثانية قبل الاستسلام
+            # مهلة 40 ثانية
             image = await asyncio.wait_for(
                 asyncio.to_thread(call_api),
-                timeout=30.0
+                timeout=40.0
             )
             
             if image:
                 output_dir = "/app/data"
                 os.makedirs(output_dir, exist_ok=True)
-                output_path = os.path.join(output_dir, f"ai_design_{message_id}.png")
-                
+                output_path = os.path.join(output_dir, f"flux_{message_id}.png")
                 image.save(output_path)
-                logger.info(f"✅ AI Image Generated: {output_path}")
+                logger.info("✅ FLUX Image Generated.")
                 return output_path
             
             return None
 
-        except asyncio.TimeoutError:
-            logger.error("❌ AI Generation Timed Out (took > 30s).")
-            return None
         except Exception as e:
-            logger.error(f"❌ AI Generation Failed: {e}")
+            # إذا فشل (مثل 403)، يسجل الخطأ ويكمل بسلام
+            logger.error(f"❌ AI Error: {e}")
             return None
