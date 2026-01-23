@@ -11,3 +11,4 @@ pillow
 requests
 # ✅ المكتبة الجديدة
 fal-client
+huggingface_hub>=0.20.0
