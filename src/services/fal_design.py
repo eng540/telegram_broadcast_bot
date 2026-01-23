@@ -16,30 +16,28 @@ class FalDesignService:
         # إعداد المفتاح
         os.environ["FAL_KEY"] = settings.FAL_KEY
         
-        # ✅ استخدام نموذج Gemini 3 Pro (الأفضل في الكتابة)
+        # ✅ استخدام نموذج جوجل الأقوى للكتابة
         self.model_endpoint = "fal-ai/gemini-3-pro-image-preview"
 
     async def generate_design(self, text: str, message_id: int) -> str:
         """
-        يرسل النص لـ Fal.ai ليقوم برسمه وكتابته (إعدادات اقتصادية)
+        يرسل النص لـ Fal.ai (Google Gemini 3) للرسم والكتابة
         """
-        logger.info(f"🎨 Fal.ai (Gemini) is working on: {text[:30]}...")
+        logger.info(f"🎨 Fal.ai (Gemini 3) is working on: {text[:30]}...")
         
-        # هندسة الأمر (Prompt Engineering)
-        # نطلب منه بوضوح كتابة النص العربي
+        # هندسة الأمر (Prompt Engineering) لضمان كتابة النص
         prompt = f"""
-        Create a high-quality artistic poster.
+        Act as a professional Arabic Calligrapher and Artist.
         
-        1. THEME: An artistic background reflecting the mood: "{text}".
-           (Style: Cinematic, Islamic Art, Soft lighting, Elegant).
+        TASK: Create a stunning poster with the following Arabic text written in the center:
+        "{text}"
         
-        2. TEXT TASK (MANDATORY):
-           Write the following Arabic text clearly in the center:
-           "{text}"
-           
-           - Font: Traditional Arabic Calligraphy (Thuluth or Naskh).
-           - Color: Gold or White (High contrast against background).
-           - The text must be 100% legible and correct.
+        REQUIREMENTS:
+        1. TEXT: The Arabic text must be written clearly, correctly, and legibly. Use elegant calligraphy.
+        2. BACKGROUND: Cinematic, artistic, moody background that matches the text's emotion. (Islamic patterns, nature, or abstract).
+        3. COLOR: Ensure high contrast between text and background (e.g., Gold text on Dark Blue background).
+        
+        Output: High quality image.
         """
 
         try:
@@ -49,9 +47,9 @@ class FalDesignService:
                     self.model_endpoint,
                     arguments={
                         "prompt": prompt,
-                        # ✅ ضبط الدقة لتوفير الموارد (ليس 2K ولا 4K)
-                        # portrait_4_3 تعطي دقة ممتازة للجوال وتوفر في السعر
-                        "image_size": "portrait_4_3", 
+                        "image_size": "portrait_4_3", # دقة ممتازة وتكلفة معقولة
+                        "num_inference_steps": 30,
+                        "guidance_scale": 3.5
                     },
                     with_logs=True
                 )
