@@ -14,17 +14,17 @@ class ImageGenerator:
         os.makedirs(self.output_dir, exist_ok=True)
         self._create_template()
         
+        # خلفيات طوارئ مجانية
         self.fallback_backgrounds = [
             "https://images.unsplash.com/photo-1542259681-d2b3c921d71e?q=80&w=1080",
             "https://images.unsplash.com/photo-1518066000714-58c45f1a2c0a?q=80&w=1080",
-            "https://images.unsplash.com/photo-1507842217121-9e9f147d7121?q=80&w=1080",
-            "https://images.unsplash.com/photo-1604076913837-52ab5629fba9?q=80&w=1080",
             "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=1080"
         ]
 
     def _create_template(self):
         os.makedirs(self.template_dir, exist_ok=True)
         
+        # تصميم فخم جداً
         html_content = """
         <!DOCTYPE html>
         <html lang="ar" dir="rtl">
@@ -39,7 +39,7 @@ class ImageGenerator:
                     width: 1080px;
                     height: 1440px;
                     font-family: 'Amiri', serif;
-                    background-color: #1a1a1a;
+                    background-color: #000;
                     background-image: url('{{ bg_url }}');
                     background-size: cover;
                     background-position: center;
@@ -49,64 +49,51 @@ class ImageGenerator:
                     justify-content: center;
                 }
 
-                .glass-container {
+                .glass-card {
                     width: 850px;
-                    padding: 80px 60px;
-                    background: rgba(0, 0, 0, 0.55);
-                    backdrop-filter: blur(15px);
-                    -webkit-backdrop-filter: blur(15px);
+                    padding: 70px 50px;
+                    /* تأثير زجاجي داكن وفخم */
+                    background: rgba(0, 0, 0, 0.6);
+                    backdrop-filter: blur(10px);
                     border-radius: 40px;
                     border: 1px solid rgba(255, 255, 255, 0.15);
-                    box-shadow: 0 30px 60px rgba(0,0,0,0.7);
+                    box-shadow: 0 30px 60px rgba(0,0,0,0.8);
                     text-align: center;
                     color: #fff;
                     display: flex;
                     flex-direction: column;
-                    justify-content: space-between;
-                    min-height: 400px;
+                    justify-content: center;
+                    min-height: 500px;
                 }
 
                 .text-body {
                     font-size: {{ font_size }}px;
                     font-weight: 700;
                     line-height: 1.8;
-                    text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+                    text-shadow: 0 4px 15px rgba(0,0,0,1);
                     white-space: pre-wrap;
-                    margin-bottom: 60px;
+                    margin-bottom: 50px;
                 }
 
                 .footer {
-                    border-top: 1px solid rgba(255,255,255,0.3);
-                    padding-top: 25px;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    gap: 5px;
-                }
-
-                .channel-name {
-                    font-family: 'Amiri', serif;
-                    font-size: 28px;
-                    color: #f0f0f0;
-                    font-weight: 400;
+                    border-top: 1px solid rgba(255,255,255,0.2);
+                    padding-top: 20px;
+                    margin-top: auto;
                 }
 
                 .handle {
                     font-family: 'Reem Kufi', sans-serif;
-                    font-size: 24px;
+                    font-size: 26px;
                     color: #ffd700; /* ذهبي */
                     letter-spacing: 2px;
                     direction: ltr;
-                    font-weight: 700;
                 }
             </style>
         </head>
         <body>
-            <div class="glass-container">
+            <div class="glass-card">
                 <div class="text-body">{{ text }}</div>
-                
                 <div class="footer">
-                    <div class="channel-name">""" + settings.CHANNEL_NAME + """</div>
                     <div class="handle">""" + settings.CHANNEL_HANDLE + """</div>
                 </div>
             </div>
@@ -116,15 +103,13 @@ class ImageGenerator:
         with open(os.path.join(self.template_dir, "card.html"), "w") as f:
             f.write(html_content)
 
-    async def render(self, text: str, message_id: int, bg_path: str = None) -> str:
-        if bg_path:
-            bg_url = f"file://{bg_path}"
-        else:
+    async def render(self, text: str, message_id: int, bg_url: str = None) -> str:
+        if not bg_url:
             bg_url = random.choice(self.fallback_backgrounds)
 
         text_len = len(text)
-        if text_len < 50: font_size = 85
-        elif text_len < 150: font_size = 70
+        if text_len < 50: font_size = 90
+        elif text_len < 150: font_size = 75
         elif text_len < 300: font_size = 60
         else: font_size = 50
 
@@ -138,7 +123,7 @@ class ImageGenerator:
             browser = await p.chromium.launch(args=['--no-sandbox'])
             page = await browser.new_page(viewport={'width': 1080, 'height': 1440})
             await page.set_content(html_out)
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(2000)
             await page.screenshot(path=output_path, type='jpeg', quality=95)
             await browser.close()
             
