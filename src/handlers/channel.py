@@ -4,56 +4,57 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from src.config import settings
 from src.services.forwarder import ForwarderService
-from src.services.image_gen import ImageGenerator
-from src.services.ai_background import AIBackgroundService
+from src.services.fal_design import FalDesignService 
 
 logger = logging.getLogger(__name__)
 
 forwarder = ForwarderService()
-image_gen = ImageGenerator()
-ai_bg = AIBackgroundService()
+fal_designer = FalDesignService()
 
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.channel_post or update.edited_channel_post
     if not message or message.chat.id != settings.MASTER_SOURCE_ID: return
 
-    # قفل لمنع التكرار
-    lock_key = f"processing_lock:{message.message_id}"
-    if await forwarder.redis.get(lock_key): return
-    await forwarder.redis.set(lock_key, "1", ex=60)
+    # الحماية من التكرار
+    redis_key = f"bot_processed:{message.message_id}"
+    if await forwarder.redis.exists(redis_key): return
 
     text = message.text or message.caption or ""
-    if not text or settings.CHANNEL_HANDLE in text: return
+    if not text: return
 
-    logger.info("🎨 Starting AI Design Process...")
+    # نتجاهل النصوص الطويلة جداً لأنها قد لا تظهر بوضوح في الصورة
+    if len(text) > 300:
+        await forwarder.broadcast_message(context.bot, message.message_id)
+        return
+
+    logger.info(f"🎨 Sending to Fal.ai (Gemini)...")
     
-    # 1. الذكاء الاصطناعي يرسم الخلفية
-    bg_path = await ai_bg.generate(text)
+    # إرسال إشعار "جاري الرفع"
+    await context.bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
     
-    if not bg_path:
-        logger.warning("⚠️ AI failed to generate background. Using fallback.")
-        # هنا سيعمل الكود القديم (صورة عشوائية) كاحتياط فقط
+    # طلب التصميم
+    image_path = await fal_designer.generate_design(text, message.message_id)
     
-    # 2. دمج النص العربي (بوضوح تام) فوق خلفية الذكاء الاصطناعي
-    try:
-        # نمرر مسار الصورة التي رسمها AI
-        image_path = await image_gen.render(text, message.message_id, bg_path)
-        
-        with open(image_path, 'rb') as f:
-            sent = await context.bot.send_photo(
-                chat_id=settings.MASTER_SOURCE_ID,
-                photo=f,
-                caption=f"✨ {settings.CHANNEL_HANDLE}"
-            )
-        
-        await forwarder.redis.set(f"bot_gen:{sent.message_id}", "1", ex=86400)
-        await forwarder.broadcast_message(context.bot, sent.message_id)
-        
-        # تنظيف الملفات
-        os.remove(image_path)
-        if bg_path and os.path.exists(bg_path):
-            os.remove(bg_path)
+    if image_path:
+        try:
+            with open(image_path, 'rb') as f:
+                sent = await context.bot.send_photo(
+                    chat_id=settings.MASTER_SOURCE_ID,
+                    photo=f,
+                    caption=f"✨ {settings.CHANNEL_HANDLE}"
+                )
             
-    except Exception as e:
-        logger.error(f"Design Process Failed: {e}")
+            # تسجيل وتوزيع
+            await forwarder.redis.set(redis_key, "1", ex=86400)
+            await forwarder.broadcast_message(context.bot, sent.message_id)
+            
+            os.remove(image_path)
+            return
+            
+        except Exception as e:
+            logger.error(f"Broadcasting Failed: {e}")
+    
+    else:
+        # في حال الفشل (نادر مع وجود رصيد)، ننشر النص
+        logger.info("⏩ Design failed, broadcasting text.")
         await forwarder.broadcast_message(context.bot, message.message_id)
