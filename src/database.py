@@ -1,7 +1,9 @@
-# --- START OF FILE src/database.py ---
+#--- START OF FILE telegram_broadcast_bot-main/src/database.py ---
+
 import logging
 import sys
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
 from src.config import settings
 from src.models import Base
 
@@ -10,50 +12,56 @@ logger = logging.getLogger("DB_Engine")
 
 db_url = settings.DATABASE_URL
 
-if not db_url or "sqlite" in db_url:
-    logger.critical("🚨 FATAL: Production requires PostgreSQL.")
+# 1. التحقق من وجود الرابط
+if not db_url:
+    logger.critical("🚨 FATAL: DATABASE_URL is missing in .env")
     sys.exit(1)
 
-# 1. تصحيح البروتوكول
+# 2. منع استخدام SQLite في الإنتاج
+if "sqlite" in db_url:
+    logger.critical("🚨 FATAL: Production requires PostgreSQL. SQLite detected.")
+    sys.exit(1)
+
+# 3. تصحيح صيغة الرابط لمكتبة SQLAlchemy
+# تحويل postgres:// إلى postgresql+asyncpg://
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# ✅ إصلاح الانهيار (Critical Fix):
-# إزالة أي استعلامات قديمة في الرابط لمنع تضارب القيم (Tuple Error)
-if "?" in db_url:
-    db_url = db_url.split("?")[0]
+logger.info(f"🔌 Database Configured: PostgreSQL")
 
-logger.info(f"🔌 Database Configured: Clean Protocol")
+# 4. ✅ THE FIX: إعدادات خاصة لتعطيل Prepared Statements
+# هذا الكود يكتشف إذا كنا نستخدم Supabase Pooler (المنفذ 6543) ويقوم بتعطيل الكاش
+# هذا يحل مشكلة: asyncpg.exceptions.InvalidSQLStatementNameError
+connect_args = {}
+if ":6543" in db_url or "pooler" in db_url:
+    logger.info("⚙️ Supabase Transaction Pooler detected: Disabling prepared statements.")
+    connect_args = {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0
+    }
 
-# 2. إعداد المحرك (الاعتماد فقط على connect_args)
+# 5. إنشاء المحرك
 engine = create_async_engine(
     db_url,
     echo=False,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=5,
-    connect_args={
-        # هذا يحل مشكلة PgBouncer بدون التسبب في انهيار النظام
-        "statement_cache_size": 0,
-        "prepared_statement_cache_size": 0,
-        "command_timeout": 60
-    }
+    pool_pre_ping=True, # يعيد الاتصال تلقائياً إذا انقطع
+    pool_size=20,
+    max_overflow=10,
+    connect_args=connect_args  # 👈 هنا يتم تمرير الإعدادات المصححة
 )
 
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
+# 6. إعداد الجلسة
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# 7. دالة تهيئة قاعدة البيانات (إنشاء الجداول)
 async def init_db():
     try:
         async with engine.begin() as conn:
+            # ينشئ الجداول فقط إذا لم تكن موجودة
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database Tables Verified.")
     except Exception as e:
         logger.critical(f"❌ Database Error: {e}")
-        # السماح للبوت بالعمل حتى لو فشلت قاعدة البيانات جزئياً
-        pass
+        raise e
