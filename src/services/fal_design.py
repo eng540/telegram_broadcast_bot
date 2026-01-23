@@ -1,76 +1,90 @@
-# --- START OF FILE src/services/fal_design.py ---
 import logging
 import os
 import asyncio
 import fal_client
+import requests
 from src.config import settings
 
-logger = logging.getLogger("FalAI_Design")
+logger = logging.getLogger("FalDesignService")
 
 class FalDesignService:
     def __init__(self):
-        self.api_key = settings.FAL_KEY
-        if self.api_key:
-            # إعداد المفتاح كما تطلب الوثائق
-            os.environ["FAL_KEY"] = self.api_key
-            # سنستخدم موديل FLUX Schnell للتوليد السريع
-            self.model_path = "fal-ai/flux/schnell"
-        else:
-            logger.critical("❌ FAL_KEY is missing! Service disabled.")
+        if not settings.FAL_KEY:
+            logger.critical("❌ FAL_KEY is missing!")
+            return
+        
+        # إعداد المفتاح بيئياً للمكتبة
+        os.environ["FAL_KEY"] = settings.FAL_KEY
+        
+        # نستخدم أقوى نموذج متاح حالياً (Ultra)
+        self.model_endpoint = "fal-ai/flux-pro/v1.1-ultra"
 
     async def generate_design(self, text: str, message_id: int) -> str:
-        if not self.api_key: return None
-
-        logger.info(f"🎨 Fal.ai Generating: {text[:30]}...")
-
-        # ترجمة وهندسة الأمر (Prompt)
+        """
+        يرسل النص لـ Fal.ai (Flux Pro) لتصميم بطاقة
+        """
+        logger.info(f"🎨 Fal.ai (Flux) is painting: {text[:30]}...")
+        
+        # هندسة الأمر (Prompt Engineering)
+        # نطلب منه كتابة النص العربي بوضوح في المنتصف
         prompt = f"""
-        A cinematic poster, arabic calligraphy art, text concept: "{text}".
-        Style: Islamic geometric patterns, golden ornate background, soft volumetric lighting, 
-        8k resolution, masterpiece, intricate details.
+        A high-end, cinematic typography poster.
+        
+        Center Subject: The following Arabic text written clearly in elegant calligraphy:
+        "{text}"
+        
+        Background: Artistic, moody, soft lighting, minimal distractions, 8k resolution, masterpiece.
+        Style: Editorial photography, Islamic art influence, golden ratio.
+        The text must be legible, sharp, and high contrast against the background.
         """
 
         try:
-            # دالة الاتصال بـ fal.ai
-            # نستخدم subscribe كما هو مفضل في الوثائق للحصول على التحديثات
-            def call_fal():
-                handler = fal_client.submit(
-                    self.model_path,
+            # دالة الاتصال (نضعها في دالة منفصلة لتشغيلها بشكل غير متزامن)
+            def run_fal():
+                return fal_client.subscribe(
+                    self.model_endpoint,
                     arguments={
                         "prompt": prompt,
-                        "image_size": "landscape_4_3", # [cite: 13]
-                        "num_inference_steps": 4,     # Schnell سريع جداً
-                        "safety_tolerance": "2"       # [cite: 5]
+                        "image_size": "portrait_4_3", # مقاس مناسب للجوال
+                        "safety_tolerance": "2",      # سماحية متوسطة
+                        "num_inference_steps": 28,
+                        "guidance_scale": 3.5
                     },
+                    with_logs=True
                 )
-                # الانتظار للحصول على النتيجة
-                return handler.get()
 
-            # تنفيذ الطلب في Thread منفصل
-            result = await asyncio.to_thread(call_fal)
-
-            # استخراج رابط الصورة من النتيجة [cite: 11]
-            if result and "images" in result and len(result["images"]) > 0:
-                image_url = result["images"][0]["url"]
-                
-                # تحميل الصورة وحفظها
-                import requests
-                response = await asyncio.to_thread(requests.get, image_url)
-                
-                if response.status_code == 200:
-                    output_dir = "/app/data"
-                    os.makedirs(output_dir, exist_ok=True)
-                    output_path = os.path.join(output_dir, f"fal_{message_id}.jpg")
-                    
-                    with open(output_path, "wb") as f:
-                        f.write(response.content)
-                    
-                    logger.info("✅ Fal.ai Image Created Successfully.")
-                    return output_path
+            # التنفيذ في الخلفية (Thread) لمنع تجميد البوت
+            result = await asyncio.to_thread(run_fal)
             
-            logger.error(f"⚠️ Unexpected response format: {result}")
+            # استخراج رابط الصورة
+            if result and 'images' in result and len(result['images']) > 0:
+                image_url = result['images'][0]['url']
+                logger.info(f"✅ Fal.ai Image Generated: {image_url}")
+                
+                # تحميل الصورة وحفظها محلياً
+                return await self._download_image(image_url, message_id)
+            
+            logger.warning("⚠️ Fal.ai returned no images.")
             return None
 
         except Exception as e:
-            logger.error(f"❌ Fal.ai Error: {e}")
+            logger.error(f"❌ Fal.ai Generation Failed: {e}")
+            return None
+
+    async def _download_image(self, url: str, message_id: int) -> str:
+        try:
+            def download():
+                response = requests.get(url, timeout=30)
+                if response.status_code == 200:
+                    output_dir = "/app/data"
+                    os.makedirs(output_dir, exist_ok=True)
+                    output_path = os.path.join(output_dir, f"design_{message_id}.jpg")
+                    with open(output_path, 'wb') as f:
+                        f.write(response.content)
+                    return output_path
+                return None
+
+            return await asyncio.to_thread(download)
+        except Exception as e:
+            logger.error(f"Failed to download image: {e}")
             return None
