@@ -1,9 +1,8 @@
-#--- START OF FILE telegram_broadcast_bot-main/src/database.py ---
-
 import logging
 import sys
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool # ✅ الإضافة الضرورية
 from src.config import settings
 from src.models import Base
 
@@ -12,54 +11,35 @@ logger = logging.getLogger("DB_Engine")
 
 db_url = settings.DATABASE_URL
 
-# 1. التحقق من وجود الرابط
 if not db_url:
-    logger.critical("🚨 FATAL: DATABASE_URL is missing in .env")
+    logger.critical("🚨 FATAL: DATABASE_URL is missing.")
     sys.exit(1)
 
-# 2. منع استخدام SQLite في الإنتاج
-if "sqlite" in db_url:
-    logger.critical("🚨 FATAL: Production requires PostgreSQL. SQLite detected.")
-    sys.exit(1)
-
-# 3. تصحيح صيغة الرابط لمكتبة SQLAlchemy
-# تحويل postgres:// إلى postgresql+asyncpg://
+# تصحيح الرابط
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 logger.info(f"🔌 Database Configured: PostgreSQL")
 
-# 4. ✅ THE FIX: إعدادات خاصة لتعطيل Prepared Statements
-# هذا الكود يكتشف إذا كنا نستخدم Supabase Pooler (المنفذ 6543) ويقوم بتعطيل الكاش
-# هذا يحل مشكلة: asyncpg.exceptions.InvalidSQLStatementNameError
-connect_args = {}
-if ":6543" in db_url or "pooler" in db_url:
-    logger.info("⚙️ Supabase Transaction Pooler detected: Disabling prepared statements.")
-    connect_args = {
-        "statement_cache_size": 0,
-        "prepared_statement_cache_size": 0
-    }
+# إعدادات خاصة لـ Supabase Pooler
+connect_args = {
+    "statement_cache_size": 0,
+    "prepared_statement_cache_size": 0
+}
 
-# 5. إنشاء المحرك
 engine = create_async_engine(
     db_url,
     echo=False,
-    pool_pre_ping=True, # يعيد الاتصال تلقائياً إذا انقطع
-    pool_size=20,
-    max_overflow=10,
-    connect_args=connect_args  # 👈 هنا يتم تمرير الإعدادات المصححة
+    # ✅ استخدام NullPool يمنع الاحتفاظ بالاتصالات القديمة ويحل مشكلة التضارب
+    poolclass=NullPool, 
+    connect_args=connect_args
 )
 
-# 6. إعداد الجلسة
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-# 7. دالة تهيئة قاعدة البيانات (إنشاء الجداول)
 async def init_db():
     try:
         async with engine.begin() as conn:
-            # ينشئ الجداول فقط إذا لم تكن موجودة
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database Tables Verified.")
     except Exception as e:
