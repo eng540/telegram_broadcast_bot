@@ -24,7 +24,7 @@ class ImageGenerator:
     def _create_template(self):
         os.makedirs(self.template_dir, exist_ok=True)
         
-        # تصميم فخم جداً
+        # تصميم فخم ومندمج
         html_content = """
         <!DOCTYPE html>
         <html lang="ar" dir="rtl">
@@ -47,36 +47,58 @@ class ImageGenerator:
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
+                    /* ✅ خطوة إضافية: تهدئة الخلفية لو كانت صاخبة */
+                    position: relative;
+                }
+                /* ✅ طبقة تصفية خفيفة على الخلفية فقط */
+                body::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(15, 23, 42, 0.25); /* لون أزرق داكن شفاف */
+                    z-index: 1;
                 }
 
                 .glass-card {
                     width: 850px;
                     padding: 70px 50px;
-                    /* تأثير زجاجي داكن وفخم */
-                    background: rgba(0, 0, 0, 0.6);
-                    backdrop-filter: blur(10px);
+                    /* ✅ الحل الأساسي: تأثير زجاجي فاتح وشفاف */
+                    background: rgba(255, 255, 255, 0.08); /* أبيض شفاف بدلاً من أسود */
+                    backdrop-filter: blur(25px) saturate(1.6); /* زيادة قوة البلور */
+                    -webkit-backdrop-filter: blur(25px) saturate(1.6);
                     border-radius: 40px;
-                    border: 1px solid rgba(255, 255, 255, 0.15);
-                    box-shadow: 0 30px 60px rgba(0,0,0,0.8);
+                    border: 1px solid rgba(255, 255, 255, 0.25); /* حدود أكثر وضوحاً للتعريف */
+                    box-shadow: 
+                        0 30px 60px rgba(0, 0, 0, 0.6), /* ظل خارجي */
+                        inset 0 1px 0 rgba(255, 255, 255, 0.2); /* إضاءة داخلية خفيفة */
                     text-align: center;
                     color: #fff;
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
                     min-height: 500px;
+                    position: relative; /* ✅ يجعل الكارد فوق طبعة body::before */
+                    z-index: 2;
                 }
 
                 .text-body {
                     font-size: {{ font_size }}px;
                     font-weight: 700;
                     line-height: 1.8;
-                    text-shadow: 0 4px 15px rgba(0,0,0,1);
+                    /* ✅ تحسين النص للوضوح على الخلفية الشفافة */
+                    color: rgba(255, 255, 255, 0.98);
+                    text-shadow: 
+                        0 2px 4px rgba(0, 0, 0, 0.5),
+                        0 0 30px rgba(255, 215, 0, 0.15); /* وهج ذهبي خفيف */
                     white-space: pre-wrap;
                     margin-bottom: 50px;
                 }
 
                 .footer {
-                    border-top: 1px solid rgba(255,255,255,0.2);
+                    border-top: 1px solid rgba(255, 255, 255, 0.15); /* خط فاتح أكثر */
                     padding-top: 20px;
                     margin-top: auto;
                 }
@@ -84,9 +106,10 @@ class ImageGenerator:
                 .handle {
                     font-family: 'Reem Kufi', sans-serif;
                     font-size: 26px;
-                    color: #ffd700; /* ذهبي */
+                    color: #ffd700;
                     letter-spacing: 2px;
                     direction: ltr;
+                    text-shadow: 0 0 10px rgba(255, 215, 0, 0.3); /* توهج للاسم */
                 }
             </style>
         </head>
