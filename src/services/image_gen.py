@@ -1,6 +1,10 @@
 import os
 import logging
 import random
+import asyncio
+import aiohttp
+from io import BytesIO
+from PIL import Image, ImageFilter, ImageEnhance, ImageDraw
 from playwright.async_api import async_playwright
 from jinja2 import Environment, FileSystemLoader
 from src.config import settings
@@ -21,10 +25,82 @@ class ImageGenerator:
             "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=1080"
         ]
 
+    async def _download_image(self, url: str) -> Image.Image:
+        """تحميل صورة من URL"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        img_data = await response.read()
+                        return Image.open(BytesIO(img_data))
+        except Exception as e:
+            logger.error(f"فشل تحميل الصورة {url}: {e}")
+        
+        # خلفية سوداء بديلة
+        return Image.new('RGB', (1080, 1440), color='black')
+
+    def _process_background(self, bg_image: Image.Image) -> Image.Image:
+        """
+        معالجة الخلفية بـ Apple/Netflix Style:
+        1. مركز داكن (Dark center mask)
+        2. Gaussian blur في الأطراف
+        3. Contrast balancing
+        """
+        # 1. تكبير الخلفية قليلاً ثم اقتصاص للتركيز
+        original_size = bg_image.size
+        enlarged = bg_image.resize((int(original_size[0] * 1.1), int(original_size[1] * 1.1)), 
+                                  Image.Resampling.LANCZOS)
+        
+        # اقتصاص مركز الصورة
+        left = (enlarged.width - 1080) // 2
+        top = (enlarged.height - 1440) // 2
+        cropped = enlarged.crop((left, top, left + 1080, top + 1440))
+        
+        # 2. تطبيق قناع مركز داكن (Vignette)
+        vignette = Image.new('L', (1080, 1440), 255)
+        draw = ImageDraw.Draw(vignette)
+        
+        # رسم تدرج إهليلجي من الأبيض في المركز إلى الأسود في الأطراف
+        for i in range(0, 600, 10):
+            alpha = int(255 * (1 - (i / 600) ** 2))
+            draw.ellipse([540-i, 720-i, 540+i, 720+i], outline=alpha, width=10)
+        
+        # تطبيق القناع
+        dark_overlay = Image.new('RGB', (1080, 1440), (0, 0, 0))
+        cropped = Image.blend(cropped, dark_overlay, 0.3)
+        
+        # 3. Gaussian blur في الأطراف فقط
+        blurred = cropped.filter(ImageFilter.GaussianBlur(radius=3))
+        
+        # قناع للتمويه: مركز واضح، أطراف ضبابية
+        mask = Image.new('L', (1080, 1440), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        
+        # رسم دائرة مركزية واضحة
+        mask_draw.ellipse([240, 420, 840, 1020], fill=255)
+        
+        # تدرج للانتقال من الوضوح إلى الضبابية
+        for radius in range(300, 540, 20):
+            alpha = int(255 * (1 - (radius - 300) / 240))
+            mask_draw.ellipse([540-radius, 720-radius, 540+radius, 720+radius], 
+                            outline=alpha, width=20)
+        
+        # دمج الصورتين حسب القناع
+        cropped = Image.composite(cropped, blurred, mask)
+        
+        # 4. تحسين التباين والإضاءة
+        enhancer = ImageEnhance.Contrast(cropped)
+        cropped = enhancer.enhance(1.2)  # زيادة التباين 20%
+        
+        enhancer = ImageEnhance.Brightness(cropped)
+        cropped = enhancer.enhance(0.9)  # تقليل الإضاءة 10%
+        
+        return cropped
+
     def _create_template(self):
+        """إنشاء قالب HTML بدون كارد - نص مباشر على الخلفية"""
         os.makedirs(self.template_dir, exist_ok=True)
         
-        # تصميم فخم ومندمج
         html_content = """
         <!DOCTYPE html>
         <html lang="ar" dir="rtl">
@@ -43,111 +119,138 @@ class ImageGenerator:
                     background-image: url('{{ bg_url }}');
                     background-size: cover;
                     background-position: center;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    /* ✅ خطوة إضافية: تهدئة الخلفية لو كانت صاخبة */
                     position: relative;
-                }
-                /* ✅ طبقة تصفية خفيفة على الخلفية فقط */
-                body::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: rgba(15, 23, 42, 0.25); /* لون أزرق داكن شفاف */
-                    z-index: 1;
+                    overflow: hidden;
                 }
 
-                .glass-card {
-                    width: 850px;
-                    padding: 70px 50px;
-                    /* ✅ الحل الأساسي: تأثير زجاجي فاتح وشفاف */
-                    background: rgba(255, 255, 255, 0.08); /* أبيض شفاف بدلاً من أسود */
-                    backdrop-filter: blur(25px) saturate(1.6); /* زيادة قوة البلور */
-                    -webkit-backdrop-filter: blur(25px) saturate(1.6);
-                    border-radius: 40px;
-                    border: 1px solid rgba(255, 255, 255, 0.25); /* حدود أكثر وضوحاً للتعريف */
-                    box-shadow: 
-                        0 30px 60px rgba(0, 0, 0, 0.6), /* ظل خارجي */
-                        inset 0 1px 0 rgba(255, 255, 255, 0.2); /* إضاءة داخلية خفيفة */
+                .text-container {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    width: 800px;
                     text-align: center;
-                    color: #fff;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
-                    min-height: 500px;
-                    position: relative; /* ✅ يجعل الكارد فوق طبعة body::before */
-                    z-index: 2;
+                    padding: 40px;
+                    z-index: 100;
                 }
 
                 .text-body {
                     font-size: {{ font_size }}px;
                     font-weight: 700;
-                    line-height: 1.8;
-                    /* ✅ تحسين النص للوضوح على الخلفية الشفافة */
+                    line-height: 1.9;
                     color: rgba(255, 255, 255, 0.98);
                     text-shadow: 
-                        0 2px 4px rgba(0, 0, 0, 0.5),
-                        0 0 30px rgba(255, 215, 0, 0.15); /* وهج ذهبي خفيف */
+                        0 4px 20px rgba(0, 0, 0, 0.9),
+                        0 2px 8px rgba(0, 0, 0, 0.8),
+                        0 0 40px rgba(255, 215, 0, 0.25);
                     white-space: pre-wrap;
-                    margin-bottom: 50px;
+                    letter-spacing: 0.5px;
+                    margin: 0;
                 }
 
                 .footer {
-                    border-top: 1px solid rgba(255, 255, 255, 0.15); /* خط فاتح أكثر */
+                    position: absolute;
+                    bottom: 60px;
+                    left: 0;
+                    right: 0;
+                    text-align: center;
                     padding-top: 20px;
-                    margin-top: auto;
+                    border-top: 1px solid rgba(255, 255, 255, 0.15);
+                    margin: 0 80px;
                 }
 
                 .handle {
                     font-family: 'Reem Kufi', sans-serif;
                     font-size: 26px;
                     color: #ffd700;
-                    letter-spacing: 2px;
+                    letter-spacing: 3px;
                     direction: ltr;
-                    text-shadow: 0 0 10px rgba(255, 215, 0, 0.3); /* توهج للاسم */
+                    text-shadow: 
+                        0 2px 8px rgba(0, 0, 0, 0.8),
+                        0 0 20px rgba(255, 215, 0, 0.4);
+                    font-weight: 700;
                 }
             </style>
         </head>
         <body>
-            <div class="glass-card">
+            <div class="text-container">
                 <div class="text-body">{{ text }}</div>
-                <div class="footer">
-                    <div class="handle">""" + settings.CHANNEL_HANDLE + """</div>
-                </div>
+            </div>
+            <div class="footer">
+                <div class="handle">""" + settings.CHANNEL_HANDLE + """</div>
             </div>
         </body>
         </html>
         """
-        with open(os.path.join(self.template_dir, "card.html"), "w") as f:
+        
+        template_path = os.path.join(self.template_dir, "card.html")
+        with open(template_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
+    async def _process_and_save_background(self, bg_url: str, message_id: int) -> str:
+        """معالجة الخلفية وحفظها مؤقتاً"""
+        # تحميل الصورة
+        bg_image = await self._download_image(bg_url)
+        
+        # معالجتها
+        processed_bg = self._process_background(bg_image)
+        
+        # حفظها مؤقتاً
+        temp_path = os.path.join(self.output_dir, f"bg_{message_id}.jpg")
+        processed_bg.save(temp_path, "JPEG", quality=95)
+        
+        return temp_path
+
     async def render(self, text: str, message_id: int, bg_url: str = None) -> str:
+        # إذا لم توجد خلفية، استخدم خلفية طوارئ
         if not bg_url:
             bg_url = random.choice(self.fallback_backgrounds)
+        
+        # 1. معالجة الخلفية
+        logger.info(f"🎨 معالجة الخلفية لـ message_id: {message_id}")
+        try:
+            # معالجة الخلفية وحفظها محلياً
+            processed_bg_path = await self._process_and_save_background(bg_url, message_id)
+            
+            # استخدام المسار المحلي للخلفية في HTML
+            local_bg_url = f"file://{processed_bg_path}"
+        except Exception as e:
+            logger.error(f"❌ فشل معالجة الخلفية: {e}")
+            local_bg_url = bg_url  # استخدم الرابط الأصلي كبديل
 
+        # 2. حساب حجم الخط
         text_len = len(text)
         if text_len < 50: font_size = 90
         elif text_len < 150: font_size = 75
         elif text_len < 300: font_size = 60
         else: font_size = 50
 
+        # 3. توليد HTML
         env = Environment(loader=FileSystemLoader(self.template_dir))
         template = env.get_template("card.html")
-        html_out = template.render(text=text, font_size=font_size, bg_url=bg_url)
+        html_out = template.render(
+            text=text, 
+            font_size=font_size, 
+            bg_url=local_bg_url
+        )
         
+        # 4. المسار النهائي
         output_path = os.path.join(self.output_dir, f"card_{message_id}.jpg")
 
+        # 5. رندر باستخدام Playwright
         async with async_playwright() as p:
             browser = await p.chromium.launch(args=['--no-sandbox'])
             page = await browser.new_page(viewport={'width': 1080, 'height': 1440})
             await page.set_content(html_out)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(2500)  # وقت أكثر للتأكد من تحميل الخلفية
             await page.screenshot(path=output_path, type='jpeg', quality=95)
             await browser.close()
+        
+        # 6. تنظيف الخلفية المؤقتة إذا كانت محلية
+        if 'processed_bg_path' in locals():
+            try:
+                os.remove(processed_bg_path)
+            except:
+                pass
             
         return output_path
