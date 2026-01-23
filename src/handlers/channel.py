@@ -1,64 +1,73 @@
 import logging
 import os
-import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.config import settings
 from src.services.forwarder import ForwarderService
-from src.services.image_gen import ImageGenerator
-from src.services.ai_background import AIBackgroundService
+from src.services.image_gen import ImageGenerator # الخطة البديلة (HTML)
+from src.services.fal_design import FalDesignService # الخطة الأساسية (AI)
 
 logger = logging.getLogger(__name__)
 
 forwarder = ForwarderService()
-image_gen = ImageGenerator()
-ai_bg = AIBackgroundService()
+html_renderer = ImageGenerator()
+fal_designer = FalDesignService()
 
 async def handle_source_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.channel_post or update.edited_channel_post
     if not message or message.chat.id != settings.MASTER_SOURCE_ID: return
 
-    # قفل لمنع التكرار
-    lock_key = f"processing_lock:{message.message_id}"
-    if await forwarder.redis.get(lock_key): return
-    await forwarder.redis.set(lock_key, "1", ex=60)
-
-    # معالجة الحذف
-    if message.reply_to_message and message.text == "/del":
-        await forwarder.delete_broadcast(context.bot, message.reply_to_message.message_id)
-        try:
-            await message.reply_to_message.delete()
-            await message.delete()
-        except: pass
-        return
+    # الحماية من التكرار
+    redis_key = f"bot_processed:{message.message_id}"
+    if await forwarder.redis.exists(redis_key): return
 
     text = message.text or message.caption or ""
-    if not text or settings.CHANNEL_HANDLE in text: return
+    if not text: return
 
-    logger.info("🎨 Designing Card...")
+    logger.info(f"📩 Processing Post...")
     
-    # 1. محاولة توليد خلفية بالذكاء الاصطناعي (مجاني)
-    bg_path = await ai_bg.generate(text)
-    
-    # 2. التصميم (سواء وجدت خلفية AI أو سنستخدم الاحتياطية)
+    final_image_path = None
+    used_engine = "NONE"
+
+    # --- المحاولة 1: الذكاء الاصطناعي (Fal.ai / Gemini 3) ---
+    # نستخدمه للنصوص القصيرة والمتوسطة (أقل من 200 حرف) لضمان دقة الكتابة
+    if len(text) < 200:
+        try:
+            await context.bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
+            final_image_path = await fal_designer.generate_design(text, message.message_id)
+            if final_image_path: used_engine = "Fal_AI"
+        except Exception as e:
+            logger.warning(f"⚠️ Fal.ai skipped: {e}")
+
+    # --- المحاولة 2: الخطة البديلة (HTML Engine) ---
+    # إذا فشل AI أو كان النص طويلاً جداً
+    if not final_image_path:
+        logger.info("🎨 Switching to HTML Engine (Fallback)...")
+        try:
+            # هنا نستخدم HTML لرسم النص، ونختار خلفية عشوائية جميلة
+            final_image_path = await html_renderer.render(text, message.message_id)
+            used_engine = "HTML_Engine"
+        except Exception as e:
+            logger.error(f"❌ All engines failed: {e}")
+
+    # --- النشر ---
     try:
-        image_path = await image_gen.render(text, message.message_id, bg_path)
-        
-        with open(image_path, 'rb') as f:
-            sent = await context.bot.send_photo(
-                chat_id=settings.MASTER_SOURCE_ID,
-                photo=f,
-                caption=f"✨ {settings.CHANNEL_HANDLE}"
-            )
-        
-        await forwarder.redis.set(f"bot_gen:{sent.message_id}", "1", ex=86400)
-        await forwarder.broadcast_message(context.bot, sent.message_id)
-        
-        # تنظيف
-        os.remove(image_path)
-        if bg_path and os.path.exists(bg_path):
-            os.remove(bg_path)
+        await forwarder.redis.set(redis_key, "1", ex=86400)
+
+        if final_image_path:
+            with open(final_image_path, 'rb') as f:
+                sent = await context.bot.send_photo(
+                    chat_id=settings.MASTER_SOURCE_ID,
+                    photo=f,
+                    caption=f"✨ {settings.CHANNEL_HANDLE}"
+                )
             
+            logger.info(f"✅ Published using {used_engine}")
+            await forwarder.broadcast_message(context.bot, sent.message_id)
+            os.remove(final_image_path)
+        else:
+            # إذا فشل كل شيء، انشر النص
+            await forwarder.broadcast_message(context.bot, message.message_id)
+
     except Exception as e:
-        logger.error(f"Design Failed: {e}")
-        await forwarder.broadcast_message(context.bot, message.message_id)
+        logger.error(f"Broadcast Error: {e}")
