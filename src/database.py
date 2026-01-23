@@ -1,5 +1,4 @@
 # --- START OF FILE src/database.py ---
-
 import logging
 import sys
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -12,13 +11,8 @@ logger = logging.getLogger("DB_Engine")
 db_url = settings.DATABASE_URL
 
 if not db_url or "sqlite" in db_url:
-    logger.critical("🚨 FATAL: Production requires PostgreSQL. SQLite detected.")
+    logger.critical("🚨 FATAL: Production requires PostgreSQL.")
     sys.exit(1)
-
-# ---------------------------------------------------------
-# ✅ THE NUCLEAR FIX (الحل الجذري)
-# تعديل الرابط لفرض تعطيل الكاش على مستوى البروتوكول
-# ---------------------------------------------------------
 
 # 1. تصحيح البروتوكول
 if db_url.startswith("postgres://"):
@@ -26,25 +20,22 @@ if db_url.startswith("postgres://"):
 elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# 2. حقن إعدادات PgBouncer داخل الرابط مباشرة
-# هذا يضمن أن asyncpg يرى الإعداد حتى لو تجاهل connect_args
+# ✅ إصلاح الانهيار (Critical Fix):
+# إزالة أي استعلامات قديمة في الرابط لمنع تضارب القيم (Tuple Error)
 if "?" in db_url:
-    db_url += "&statement_cache_size=0&prepared_statement_cache_size=0"
-else:
-    db_url += "?statement_cache_size=0&prepared_statement_cache_size=0"
+    db_url = db_url.split("?")[0]
 
-logger.info(f"🔌 Database Configured with FORCED NO-CACHE Protocol")
+logger.info(f"🔌 Database Configured: Clean Protocol")
 
-# 3. إعداد المحرك
+# 2. إعداد المحرك (الاعتماد فقط على connect_args)
 engine = create_async_engine(
     db_url,
     echo=False,
     pool_pre_ping=True,
-    # تقليل حجم الـ Pool لتخفيف التصادمات في PgBouncer
-    pool_size=5,
-    max_overflow=10,
-    # الإبقاء على connect_args كخط دفاع ثاني
+    pool_size=10,
+    max_overflow=5,
     connect_args={
+        # هذا يحل مشكلة PgBouncer بدون التسبب في انهيار النظام
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
         "command_timeout": 60
@@ -64,5 +55,5 @@ async def init_db():
         logger.info("✅ Database Tables Verified.")
     except Exception as e:
         logger.critical(f"❌ Database Error: {e}")
-        # لن نوقف النظام، سنحاول الاستمرار
-        # raise e
+        # السماح للبوت بالعمل حتى لو فشلت قاعدة البيانات جزئياً
+        pass
