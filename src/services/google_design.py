@@ -1,3 +1,4 @@
+# --- START OF FILE src/services/google_design.py ---
 import logging
 import os
 import asyncio
@@ -13,48 +14,73 @@ class GoogleDesignService:
             logger.warning("⚠️ FAL_KEY is missing.")
             return
         os.environ["FAL_KEY"] = settings.FAL_KEY
-        # النموذج المعتمد: Gemini 3 Pro Image (الأذكى في العالم للنصوص)
+        # النموذج الأذكى عالميًا للنصوص: Gemini 3 Pro Image
         self.model_endpoint = "fal-ai/gemini-3-pro-image-preview"
 
-    async def generate_pro_design(self, text: str, message_id: int) -> str:
+    async def generate_masterpiece(self, text: str, message_id: int) -> str:
         """
-        Generate a masterpiece design where AI acts as both Art Director and Calligrapher.
+        Absolute final version: AI acts as elite Arabic Calligrapher, Conceptual Art Director,
+        and Visual Storyteller for high-end literary content.
         """
-        if not settings.FAL_KEY: return None
+        if not settings.FAL_KEY:
+            return None
 
-        logger.info(f"💎 Gemini 3 Pro Dreaming: {text[:30]}...")
+        logger.info(f"💎 Gemini 3 Pro Crafting Masterpiece for text: {text[:30]}...")
 
-        # --- Super-Prompt: هندسة الأوامر المتقدمة ---
+        # --- Ultimate Super-Prompt ---
         prompt = f"""
-        ROLE: You are the world's most renowned Arabic Calligrapher and Surrealist Digital Artist.
+        ROLE: You are the world's most elite Arabic Calligrapher, Conceptual Art Director,
+        and Digital Artist specializing in literary visualization.
 
-        YOUR TASK: Create a breathtaking cinematic poster that visualizes the soul of the text below.
+        CONTEXT: This text comes from the premium Arabic literary channel "Rwaea3" (t.me/Rwaea3).
 
-        === THE INPUT ===
-        MAIN TEXT (Arabic): "{text}"
-        SIGNATURE (Small, Bottom): "@Rwaea3"
+        INPUT TEXT:
+        "{text}"
 
-        === EXECUTION PROTOCOL ===
-        
-        1. 🧠 DEEP ANALYSIS (INTERNAL):
-           - Analyze the text. Is it Sad? Heroic? Sufi/Divine? Romantic?
-           - Visualize a scene that *metaphorically* represents this emotion, not just literally.
-           - Example: If text speaks of "hope", visualize light breaking through dark clouds.
+        SIGNATURE:
+        Small, subtle, elegant "@Rwaea3" integrated organically within the visual design
+        (bottom or creatively embedded in elements like decorations, light, or shadows).
 
-        2. 🎨 ARTISTIC DIRECTION (DYNAMIC):
-           - Style: Hyper-realistic, 8k, Cinematic Lighting, Ray Tracing.
-           - Composition: The Arabic text must be the "Hero" of the image, centered and imposing.
-           - Background: Must be atmospheric and moody (e.g., blurry ancient library, desert at twilight, stormy ocean, celestial geometry).
-           - Contrast: Text color MUST contrast perfectly with the background (Gold on Dark, Black on Parchment).
+        CREATIVE DIRECTIVES:
 
-        3. ✍️ CALLIGRAPHY ENGINE:
-           - Write the MAIN TEXT in the center using majestic Arabic scripts (Thuluth, Diwani, or Royal Naskh).
-           - Ensure Diacritics (Tashkeel) are present and artistic.
-           - The text should look like it is made of physical material (e.g., liquid gold, carved stone, glowing neon) integrated into the world.
-        
-        4. 🛡️ INTEGRITY CHECK:
-           - The Arabic text must be spelled 100% correctly.
-           - The Signature "@Rwaea3" must be small, subtle, and elegant at the bottom center.
+        1. DEEP TEXT ANALYSIS:
+           - Fully read and understand the Arabic text.
+           - Extract its literary soul: Sadness, Heroism, Divine/Spiritual, Romance, Wisdom, Nature, Historical depth.
+           - Visualize the meaning metaphorically, beyond literal words.
+
+        2. VISUALIZATION & COMPOSITION:
+           - The text must be the HERO and fully integrated into the scene.
+           - Consider the text as a living architectural element: forming domes, arches, branches, waves, or natural flows.
+           - Backgrounds must reflect the literary mood dynamically:
+             * Sad/Deep: fog, muted lighting, shadows, textured darkness
+             * Divine/Spiritual: celestial glow, rays of light, ethereal clouds
+             * Romantic: flowing colors, blooming patterns, soft textures
+             * Wisdom/Historical: stone, marble, parchment, ancient libraries
+           - Ensure organic integration between text and background, not just overlay.
+
+        3. CALLIGRAPHY:
+           - Use majestic Arabic scripts according to mood:
+             * Thuluth for grandeur & solemnity
+             * Diwani for flow & emotion
+             * Naskh for clarity & narration
+             * Kufic for historic/strong texts
+           - Include Tashkeel (diacritics) artistically.
+           - The text should appear as physical material: gold, marble, wood, glowing, carved, or fluid.
+
+        4. LIGHT & COLOR:
+           - Cinematic lighting, 8K resolution, Ray Tracing.
+           - Colors must enhance mood and readability:
+             * Sad: Deep blues, purples, grays
+             * Hope/Romance: Golds, soft pinks, emeralds
+             * Wisdom: Earthy tones, sepia, bronze
+             * Historical: Marble, stone, parchment textures
+           - Depth of field: highlight text, add layered realism.
+
+        5. INTEGRITY & QUALITY:
+           - Text must be 100% correct in Arabic.
+           - Signature "@Rwaea3" must be elegant and part of the environment.
+           - Avoid watermarks, logos, or copied elements.
+           - Ensure photorealistic textures and cinematic artistic mastery.
 
         GENERATE THE MASTERPIECE NOW.
         """
@@ -65,9 +91,9 @@ class GoogleDesignService:
                     self.model_endpoint,
                     arguments={
                         "prompt": prompt,
-                        "image_size": "portrait_4_3", # الأفضل للجوال
-                        "num_inference_steps": 40,    # زدنا الدقة قليلاً لضمان حدة الخط
-                        "guidance_scale": 4.5,        # توازن مثالي بين الالتزام بالنص والإبداع الفني
+                        "image_size": "portrait_4_3",
+                        "num_inference_steps": 55,   # Maximum detail
+                        "guidance_scale": 5.5,       # Strong adherence to prompt while allowing creative freedom
                         "enable_safety_checker": True
                     },
                     with_logs=True
@@ -83,7 +109,7 @@ class GoogleDesignService:
             return None
 
         except Exception as e:
-            logger.error(f"❌ PRO Design Failed: {e}")
+            logger.error(f"❌ Masterpiece Generation Failed: {e}")
             return None
 
     async def _download_image(self, url: str, message_id: int) -> str:
@@ -102,3 +128,4 @@ class GoogleDesignService:
         except Exception as e:
             logger.error(f"Download Error: {e}")
             return None
+# --- END OF FILE ---
