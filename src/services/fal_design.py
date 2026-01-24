@@ -12,17 +12,15 @@ class FalDesignService:
     def __init__(self):
         if not settings.FAL_KEY: return
         os.environ["FAL_KEY"] = settings.FAL_KEY
-        # نستخدم Schnell (الاقتصادي)
         self.model_endpoint = "fal-ai/flux/schnell"
 
     async def generate_background(self, text: str) -> str:
-        """توليد خلفية وتحميلها محلياً"""
         logger.info(f"🎨 Fal.ai (Schnell) generating background...")
         
         prompt = f"""
         Abstract artistic background representing: "{text[:100]}".
         Style: Cinematic, Islamic Art patterns, soft lighting, elegant, 8k resolution.
-        Colors: Dark, Gold, Deep Blue, Charcoal.
+        Colors: Dark, Gold, Deep Blue.
         IMPORTANT: NO TEXT, NO LETTERS. Just pure background art.
         """
 
@@ -45,7 +43,7 @@ class FalDesignService:
                 image_url = result['images'][0]['url']
                 logger.info(f"✅ Image Generated: {image_url}")
                 
-                # 🔥 الخطوة الحاسمة: تحميل الصورة للسيرفر
+                # 🔥 التغيير الجوهري: تحميل الصورة فوراً
                 return await self._download_image(image_url)
             
             return None
@@ -55,7 +53,7 @@ class FalDesignService:
             return None
 
     async def _download_image(self, url: str) -> str:
-        """تحميل الصورة من الرابط وحفظها في ملف"""
+        """تحميل الصورة من الرابط وحفظها محلياً"""
         try:
             def download():
                 response = requests.get(url, timeout=30)
@@ -64,14 +62,17 @@ class FalDesignService:
                     os.makedirs(output_dir, exist_ok=True)
                     # اسم ملف فريد
                     filename = f"bg_{uuid.uuid4()}.jpg"
-                    output_path = os.path.join(output_dir, filename)
-                    
-                    with open(output_path, 'wb') as f:
+                    path = os.path.join(output_dir, filename)
+                    with open(path, 'wb') as f:
                         f.write(response.content)
-                    return output_path
+                    return path
                 return None
 
-            return await asyncio.to_thread(download)
+            local_path = await asyncio.to_thread(download)
+            if local_path:
+                logger.info(f"📥 Background downloaded to: {local_path}")
+            return local_path
+            
         except Exception as e:
             logger.error(f"Failed to download background: {e}")
             return None
