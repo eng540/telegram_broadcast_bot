@@ -5,6 +5,7 @@ import fal_client
 import requests
 import uuid
 import base64
+import random
 from src.config import settings
 
 logger = logging.getLogger("FalDesignService")
@@ -15,24 +16,67 @@ class FalDesignService:
         os.environ["FAL_KEY"] = settings.FAL_KEY
         self.model_endpoint = "fal-ai/flux/schnell"
 
+    def _detect_mood(self, text: str) -> dict:
+        """تحليل بسيط للنص لتحديد جو الصورة والألوان"""
+        text = text.lower()
+        
+        # 1. نمط الصباح والأمل والتفاؤل
+        if any(w in text for w in ['صبح', 'شمس', 'نور', 'ضياء', 'أمل', 'سعادة', 'فرح', 'بسمة', 'زهر', 'ورد', 'جمال']):
+            return {
+                "style": "Oil Painting, Soft Morning Light, Vibrant",
+                "colors": "Pastel, White, Light Blue, Soft Pink, Gold",
+                "atmosphere": "Bright, Airy, Hopeful, Dreamy"
+            }
+        
+        # 2. نمط الليل والحزن والفراق (النمط الحالي)
+        elif any(w in text for w in ['ليل', 'ظلام', 'سهر', 'قمر', 'حزن', 'ألم', 'فراق', 'دمع', 'هم', 'وجع', 'موت']):
+            return {
+                "style": "Cinematic, Dark Fantasy, Moody",
+                "colors": "Dark Blue, Black, Silver, Deep Purple",
+                "atmosphere": "Mysterious, Melancholic, Foggy, Night time"
+            }
+            
+        # 3. نمط الطبيعة والتأمل
+        elif any(w in text for w in ['بحر', 'مطر', 'غيم', 'سماء', 'شجر', 'طبيعة', 'نهر', 'جبل', 'أرض']):
+            return {
+                "style": "National Geographic Photography, Hyper-realistic",
+                "colors": "Green, Earthy Browns, Sky Blue, Teal",
+                "atmosphere": "Nature, Calm, Fresh, Organic"
+            }
+            
+        # 4. نمط الحكمة والتاريخ (إسلامي/تجريدي) - الافتراضي
+        else:
+            # نختار عشوائياً بين عدة أنماط لكسر الملل
+            styles = [
+                {"s": "Islamic Geometric Art", "c": "Gold, Turquoise, Beige", "a": "Elegant, Structured"},
+                {"s": "Abstract Fluid Art", "c": "Beige, Gold, Marble White", "a": "Modern, Clean"},
+                {"s": "Vintage Paper & Ink", "c": "Sepia, Brown, Black", "a": "Historical, Classic"}
+            ]
+            choice = random.choice(styles)
+            return {
+                "style": choice["s"],
+                "colors": choice["c"],
+                "atmosphere": choice["a"]
+            }
+
     async def generate_background_b64(self, text: str) -> str:
-        """توليد خلفية نظيفة تماماً (بدون نص)"""
-        logger.info(f"🎨 Fal.ai generating CLEAN background...")
+        """توليد خلفية متغيرة حسب المعنى"""
         
-        # هندسة الأمر: نركز على العناصر البصرية ونمنع النص بقوة
-        # نأخذ كلمات قليلة فقط من النص لتحديد الجو العام، لتجنب تشتيت الذكاء الاصطناعي
+        # 1. تحديد المزاج
+        mood = self._detect_mood(text)
+        logger.info(f"🎨 Detected Mood: {mood['atmosphere']}")
+        
+        # 2. هندسة الأمر الديناميكي (Dynamic Prompt)
         prompt = f"""
-        A high-end, cinematic, abstract wallpaper.
-        Theme: Atmospheric, Moody, Ethereal, Soft Focus.
-        Style: Islamic Geometric Patterns OR Majestic Nature (Clouds, Mountains, Stars).
-        Lighting: Volumetric, Golden Hour, or Midnight Blue.
+        High-quality artistic background.
+        Subject: Abstract representation of: "{text[:50]}".
         
-        CRITICAL RULES:
-        1. ABSOLUTELY NO TEXT.
-        2. NO ARABIC LETTERS.
-        3. NO CALLIGRAPHY.
-        4. NO WATERMARKS.
-        5. The image must be PURE BACKGROUND TEXTURE.
+        VISUAL STYLE: {mood['style']}.
+        COLOR PALETTE: {mood['colors']}.
+        ATMOSPHERE: {mood['atmosphere']}.
+        
+        COMPOSITION: Minimalist center (negative space) for text overlay.
+        CRITICAL: NO TEXT, NO LETTERS, NO WATERMARKS. Just pure art.
         """
 
         try:
@@ -61,7 +105,6 @@ class FalDesignService:
             return None
 
     async def _url_to_base64(self, url: str) -> str:
-        """تحميل الصورة وتحويلها لنص"""
         try:
             def convert():
                 response = requests.get(url, timeout=30)
