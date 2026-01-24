@@ -1,4 +1,3 @@
-# --- START OF FILE src/services/google_design.py ---
 import logging
 import os
 import asyncio
@@ -14,72 +13,40 @@ class GoogleDesignService:
             logger.warning("⚠️ FAL_KEY is missing.")
             return
         os.environ["FAL_KEY"] = settings.FAL_KEY
-        # الحقيقة الثابتة: النموذج المعتمد في الكود
+        # نستخدم أقوى نموذج لدى قوقل حالياً
         self.model_endpoint = "fal-ai/gemini-3-pro-image-preview"
 
-    def _analyze_context(self, text: str) -> dict:
-        """
-        🧠 محرك تحليل السياق: يحدد الروح الفنية للنص بدلاً من الستايل الثابت.
-        """
-        # 1. السياق الروحاني / الديني
-        if any(w in text for w in ['الله', 'رب', 'نور', 'روح', 'دعاء', 'قلب', 'إيمان']):
-            return {
-                "theme": "Spiritual & Divine",
-                "font_style": "Majestic Thuluth or flowing Diwani",
-                "palette": "Ethereal Gold, Azure Blue, Pearlescent White light",
-                "atmosphere": "Mystical, volumetric sun rays, celestial glow, awe-inspiring",
-                "integration": "Text formed by glowing light beams integrated into sacred architecture"
-            }
-        # 2. السياق الحزين / العميق
-        elif any(w in text for w in ['ليل', 'حزن', 'فراق', 'ألم', 'دمع', 'وحدة', 'غياب']):
-            return {
-                "theme": "Melancholic & Deep Emotion",
-                "font_style": "Expressive, slightly rough or textured Arabic script",
-                "palette": "Muted tones, Deep Charcoal, Desaturated Blues, touch of faded crimson",
-                "atmosphere": "Moody, cinematic shadow play (chiaroscuro), rain streaks, emotional",
-                "integration": "Text appears weathered, etched into an ancient sorrowful surface"
-            }
-        # 3. سياق القوة / الفخر / المجد
-        elif any(w in text for w in ['عز', 'مجد', 'سيف', 'قوة', 'نصر', 'خيل', 'فخر']):
-            return {
-                "theme": "Heroic & Powerful",
-                "font_style": "Bold Geometric Kufic or Strong Thuluth",
-                "palette": "Royal Red, Burnished Gold, Obsidian Black, Bronze",
-                "atmosphere": "Epic, dramatic sunset lighting, historic grandeur, resilient",
-                "integration": "Text forged from metal or carved into monumental stone"
-            }
-        # 4. السياق الافتراضي: فخامة عصرية
-        else:
-            return {
-                "theme": "Modern Luxury & Elegance",
-                "font_style": "Contemporary Fluid Arabic Calligraphy",
-                "palette": "Champagne Gold, Cream, Dark Marble textures",
-                "atmosphere": "Sophisticated studio lighting, clean, high-end editorial feel",
-                "integration": "Text flowing seamlessly with abstract luxury materials like silk or marble"
-            }
-
     async def generate_pro_design(self, text: str, message_id: int) -> str:
-        """تصميم احترافي عالمي يعتمد على تحليل السياق"""
+        """
+        يرسل النص لـ Google Gemini ويطلب منه تحليله وتصميمه بأسلوب فني حر
+        """
         if not settings.FAL_KEY: return None
         
-        # 1. تحليل النص لاستخراج التوجيهات الفنية
-        context = self._analyze_context(text)
-        logger.info(f"💎 Designing with Context: {context['theme']} for text: {text[:20]}...")
+        logger.info(f"💎 Gemini 3 Pro is analyzing context for: {text[:20]}...")
 
-        # 2. هندسة البرومبت المتطورة (World-Class Prompt Engineering)
+        # --- هندسة البرومبت الاستراتيجية (The Strategic Prompt) ---
+        # هنا نعطي النموذج "حرية ذكية". لا نحدد له الألوان، بل نطلب منه استنتاجها.
         prompt = f"""
-        Role: World-class Arabic Calligrapher and Conceptual Digital Artist.
-        Project: Create a masterpiece cinematic poster symbolizing "{context['theme']}".
+        ACT AS: An elite Arabic Calligrapher and Conceptual Art Director for a high-end literature channel.
         
-        CRITICAL TASK: Accurately and artistically write the Arabic text below as the central hero element.
-        TEXT TO WRITE: "{text}"
+        INPUT TEXT:
+        "{text}"
         
-        ART DIRECTION & STYLE:
-        1. Typography: {context['font_style']}.
-        2. Integration: {context['integration']}. The text must feel part of the world, not just placed on top.
-        3. Color Palette: {context['palette']}.
-        4. Atmosphere & Mood: {context['atmosphere']}.
-        5. Composition: Cinematic, balanced, focusing power on the text. 8k resolution, highly detailed textures.
+        --- YOUR CREATIVE PROCESS ---
+        1. ANALYZE: Read the Arabic text deeply. Understand the hidden emotions (Melancholy, Pride, Sufism, Romance, Wisdom, Nature).
+        2. VISUALIZE: Create a background that represents the *soul* of the text, not just the literal words. 
+           - If the text is deep/sad -> Use shadows, fog, moody lighting, dark textures.
+           - If the text is divine/hopeful -> Use rays of light, sunrise, ethereal glow, soft clouds.
+           - If the text is strong/historical -> Use gold, marble, stone, dramatic contrast.
+        
+        --- EXECUTION REQUIREMENTS ---
+        1. THE TEXT IS THE HERO: Write the exact Arabic text provided above in the visual center.
+        2. CALLIGRAPHY STYLE: Choose the font style that matches the mood (e.g., use 'Thuluth' for majesty, 'Diwani' for flow/emotion, or 'Kufic' for strength).
+        3. INTEGRATION: The text must feel carved, written, or floating within the environment, NOT just pasted on top.
+        4. QUALITY: 8k resolution, Cinematic Lighting, Ray Tracing, Photorealistic textures.
+        5. LEGIBILITY: The text must be perfectly readable with high contrast against the background.
+        
+        Generate the Masterpiece.
         """
 
         try:
@@ -89,10 +56,9 @@ class GoogleDesignService:
                     arguments={
                         "prompt": prompt,
                         "image_size": "portrait_4_3",
-                        # ✅ تحسين الكفاءة: زيادة الخطوات لنتائج أدق مع النماذج المعقدة
-                        "num_inference_steps": 55, 
-                        # ✅ تحسين الالتزام: زيادة مقياس التوجيه لضمان كتابة النص بدقة
-                        "guidance_scale": 5.5 
+                        # نعطيه وقتاً كافياً للتفكير والإبداع
+                        "num_inference_steps": 40, 
+                        "guidance_scale": 4.5 
                     },
                     with_logs=True
                 )
