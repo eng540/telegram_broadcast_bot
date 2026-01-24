@@ -1,3 +1,4 @@
+# --- START OF FILE src/services/google_design.py ---
 import logging
 import os
 import asyncio
@@ -24,8 +25,8 @@ class GoogleDesignService:
         
         logger.info(f"💎 Gemini 3 Pro is analyzing context for: {text[:20]}...")
 
-        # --- هندسة البرومبت الاستراتيجية (The Strategic Prompt) ---
-        # هنا نعطي النموذج "حرية ذكية". لا نحدد له الألوان، بل نطلب منه استنتاجها.
+        # --- هندسة البرومبت الاستراتيجية ---
+        # هذا البرومبت يترك الحرية للنموذج لفهم النص وتحويله لتصميم بصري
         prompt = f"""
         ACT AS: An elite Arabic Calligrapher and Conceptual Art Director for a high-end literature channel.
         
@@ -33,15 +34,13 @@ class GoogleDesignService:
         "{text}"
         
         --- YOUR CREATIVE PROCESS ---
-        1. ANALYZE: Read the Arabic text deeply. Understand the hidden emotions (Melancholy, Pride, Sufism, Romance, Wisdom, Nature).
-        2. VISUALIZE: Create a background that represents the *soul* of the text, not just the literal words. 
-           - If the text is deep/sad -> Use shadows, fog, moody lighting, dark textures.
-           - If the text is divine/hopeful -> Use rays of light, sunrise, ethereal glow, soft clouds.
-           - If the text is strong/historical -> Use gold, marble, stone, dramatic contrast.
+        1. ANALYZE: Read the Arabic text deeply. Understand the hidden emotions, symbolism, and literary essence.
+        2. VISUALIZE: Create a background that represents the *soul* of the text, not just the literal words.
+           Use your artistic intelligence to decide the mood, colors, lighting, and textures that best fit the text.
         
         --- EXECUTION REQUIREMENTS ---
         1. THE TEXT IS THE HERO: Write the exact Arabic text provided above in the visual center.
-        2. CALLIGRAPHY STYLE: Choose the font style that matches the mood (e.g., use 'Thuluth' for majesty, 'Diwani' for flow/emotion, or 'Kufic' for strength).
+        2. CALLIGRAPHY STYLE: Choose the font style that naturally fits the text's mood and literary tone.
         3. INTEGRATION: The text must feel carved, written, or floating within the environment, NOT just pasted on top.
         4. QUALITY: 8k resolution, Cinematic Lighting, Ray Tracing, Photorealistic textures.
         5. LEGIBILITY: The text must be perfectly readable with high contrast against the background.
@@ -88,3 +87,4 @@ class GoogleDesignService:
                 return None
             return await asyncio.to_thread(download)
         except: return None
+# --- END OF FILE ---
