@@ -3,7 +3,8 @@ import os
 import asyncio
 import fal_client
 import requests
-import base64 # المكتبة الضرورية
+import uuid
+import base64
 from src.config import settings
 
 logger = logging.getLogger("FalDesignService")
@@ -15,14 +16,23 @@ class FalDesignService:
         self.model_endpoint = "fal-ai/flux/schnell"
 
     async def generate_background_b64(self, text: str) -> str:
-        """توليد خلفية وإعادتها كنص مشفر Base64"""
-        logger.info(f"🎨 Fal.ai generating background...")
+        """توليد خلفية نظيفة تماماً (بدون نص)"""
+        logger.info(f"🎨 Fal.ai generating CLEAN background...")
         
+        # هندسة الأمر: نركز على العناصر البصرية ونمنع النص بقوة
+        # نأخذ كلمات قليلة فقط من النص لتحديد الجو العام، لتجنب تشتيت الذكاء الاصطناعي
         prompt = f"""
-        Abstract artistic background representing: "{text[:100]}".
-        Style: Cinematic, Islamic Art patterns, soft lighting, elegant, 8k resolution.
-        Colors: Dark, Gold, Deep Blue.
-        IMPORTANT: NO TEXT, NO LETTERS. Just pure background art.
+        A high-end, cinematic, abstract wallpaper.
+        Theme: Atmospheric, Moody, Ethereal, Soft Focus.
+        Style: Islamic Geometric Patterns OR Majestic Nature (Clouds, Mountains, Stars).
+        Lighting: Volumetric, Golden Hour, or Midnight Blue.
+        
+        CRITICAL RULES:
+        1. ABSOLUTELY NO TEXT.
+        2. NO ARABIC LETTERS.
+        3. NO CALLIGRAPHY.
+        4. NO WATERMARKS.
+        5. The image must be PURE BACKGROUND TEXTURE.
         """
 
         try:
@@ -42,7 +52,6 @@ class FalDesignService:
             
             if result and 'images' in result and len(result['images']) > 0:
                 image_url = result['images'][0]['url']
-                # 🔥 التحويل إلى Base64 فوراً
                 return await self._url_to_base64(image_url)
             
             return None
@@ -57,7 +66,6 @@ class FalDesignService:
             def convert():
                 response = requests.get(url, timeout=30)
                 if response.status_code == 200:
-                    # التشفير
                     b64_data = base64.b64encode(response.content).decode('utf-8')
                     return f"data:image/jpeg;base64,{b64_data}"
                 return None
