@@ -17,42 +17,48 @@ class FalDesignService:
         os.environ["FAL_KEY"] = settings.FAL_KEY
         self.model_endpoint = "fal-ai/flux/schnell"
 
+    def _extract_mood(self, text: str) -> str:
+        """
+        Map Arabic text to mood keywords (used internally only, not sent as text to AI)
+        """
+        text = text.lower()
+        if any(w in text for w in ['صبح', 'شمس', 'نور', 'أمل', 'سعادة']):
+            return "sunrise, hope, pastel, warm light, soft focus"
+        elif any(w in text for w in ['ليل', 'ظلام', 'قمر', 'حزن', 'دمع']):
+            return "night, melancholic, dark blue, cinematic, stars, moon"
+        elif any(w in text for w in ['بحر', 'مطر', 'غيم', 'شجر', 'طبيعة']):
+            return "nature, mountains, rivers, cinematic lighting, hyper-realistic"
+        else:
+            options = [
+                "abstract, elegant texture, soft depth of field, gold turquoise beige",
+                "vintage, paper texture, cinematic lighting, sepia tones",
+                "fluid art, marble texture, clean, modern, white gold grey"
+            ]
+            return random.choice(options)
+
     async def generate_background_b64(self, text: str) -> str:
         """
-        Generate a creative, intelligent background inspired by Arabic text.
-        IMPORTANT: No text, letters, or calligraphy should appear in the image.
+        Generate a background fully inspired by the text without including any letters or words.
         """
         if not settings.FAL_KEY:
-            logger.warning("⚠️ FAL_KEY not set. Cannot generate background.")
             return None
 
-        logger.info(f"🎨 Generating intelligent background for text: {text[:40]}...")
+        mood_keywords = self._extract_mood(text)
+        logger.info(f"🎨 Mood keywords: {mood_keywords}")
 
-        # --- PRO Dynamic Prompt (strictly background) ---
+        # --- Prompt STRICTLY BACKGROUND ---
         prompt = f"""
-        ROLE: You are a top-tier visual artist.
-
-        INPUT (for understanding only, do NOT include in the image):
-        "{text}"
-
-        OBJECTIVE:
-        - Create a cinematic, atmospheric, hyper-realistic background inspired by the emotions, mood, and metaphors of the Arabic text.
-        - The image must be completely text-free.
-        - Do not include letters, calligraphy, logos, watermarks, or human faces.
-        - Focus on mood, lighting, color palette, and texture that reflects the text's essence.
-        - Make the composition ready for later text overlay.
-
-        STYLE GUIDELINES:
-        - Cinematic, professional, 8K resolution
-        - Soft focus or bokeh for text readability
-        - Balanced color grading and lighting
-        - Immersive, elegant, visually harmonious
-
-        FORBIDDEN:
-        ✗ Text, letters, or calligraphy
-        ✗ Faces, figures, or identifiable humans
-        ✗ Logos, watermarks, or stock patterns
-        ✗ Literal depiction of the text
+        You are a master visual artist creating a background.
+        Focus only on atmosphere, mood, lighting, and composition inspired by {mood_keywords}.
+        Create a visually stunning, cinematic background.
+        
+        STRICT RULES:
+        - Absolutely NO text, letters, or calligraphy.
+        - No human faces or figures.
+        - No logos or watermarks.
+        - No literal depiction of text content.
+        - Soft focus, bokeh, professional color grading.
+        - Balanced composition ready for overlaying text later.
         """
 
         try:
@@ -63,7 +69,7 @@ class FalDesignService:
                         "prompt": prompt,
                         "image_size": "portrait_4_3",
                         "num_inference_steps": 12,
-                        "guidance_scale": 4.5,
+                        "guidance_scale": 5.0,
                         "enable_safety_checker": True
                     },
                     with_logs=True
