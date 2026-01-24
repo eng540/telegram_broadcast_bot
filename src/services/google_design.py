@@ -1,4 +1,3 @@
-# --- START OF FILE src/services/google_design.py ---
 import logging
 import os
 import asyncio
@@ -9,78 +8,70 @@ from src.config import settings
 logger = logging.getLogger("GoogleDesignService")
 
 class GoogleDesignService:
+    """
+    Professional service to generate Arabic literary visual designs using Google Gemini 3 Pro.
+    Includes full creative prompt, signature, cinematic quality, and calligraphy integration.
+    """
+
     def __init__(self):
         if not settings.FAL_KEY:
-            logger.warning("⚠️ FAL_KEY is missing.")
+            logger.warning("⚠️ FAL_KEY is missing. Google Gemini will not work.")
             return
         os.environ["FAL_KEY"] = settings.FAL_KEY
-        # النموذج الأذكى عالميًا للنصوص: Gemini 3 Pro Image
         self.model_endpoint = "fal-ai/gemini-3-pro-image-preview"
+        logger.info("✅ GoogleDesignService initialized with Gemini 3 Pro.")
 
-    async def generate_masterpiece(self, text: str, message_id: int) -> str:
+    async def generate_pro_design(self, text: str, message_id: int) -> str:
         """
-        Absolute final version: AI acts as elite Arabic Calligrapher, Conceptual Art Director,
-        and Visual Storyteller for high-end literary content.
+        Generate a high-end cinematic Arabic calligraphy design from text.
+        Includes signature, deep text analysis, calligraphy, and integrated background.
         """
         if not settings.FAL_KEY:
             return None
 
-        logger.info(f"💎 Gemini 3 Pro Crafting Masterpiece for text: {text[:30]}...")
+        logger.info(f"💎 Generating Pro Design for text: {text[:50]}...")
 
         # --- Ultimate Super-Prompt ---
         prompt = f"""
-        ROLE: You are the world's most elite Arabic Calligrapher, Conceptual Art Director,
-        and Digital Artist specializing in literary visualization.
+        ROLE: You are the world's most renowned Arabic Calligrapher and Surrealist Digital Artist.
 
-        CONTEXT: This text comes from the premium Arabic literary channel "Rwaea3" (t.me/Rwaea3).
+        YOUR TASK: Transform the Arabic literary text below into a cinematic, high-end visual masterpiece.
 
-        INPUT TEXT:
-        "{text}"
+        === INPUT TEXT ===
+        MAIN TEXT: "{text}"
+        SIGNATURE (small, elegant, bottom center): "روائع من الأدب العربي | @Rwaea3"
 
-        SIGNATURE:
-        Small, subtle, elegant "@Rwaea3" integrated organically within the visual design
-        (bottom or creatively embedded in elements like decorations, light, or shadows).
-
-        CREATIVE DIRECTIVES:
+        === CREATIVE INSTRUCTIONS ===
 
         1. DEEP TEXT ANALYSIS:
-           - Fully read and understand the Arabic text.
-           - Extract its literary soul: Sadness, Heroism, Divine/Spiritual, Romance, Wisdom, Nature, Historical depth.
-           - Visualize the meaning metaphorically, beyond literal words.
+           - Detect the emotional core: Sadness, Hope, Sufism, Romance, Heroism, Wisdom.
+           - Visualize metaphors, not just literal words.
+           - The image must *feel* the text before reading it.
 
-        2. VISUALIZATION & COMPOSITION:
-           - The text must be the HERO and fully integrated into the scene.
-           - Consider the text as a living architectural element: forming domes, arches, branches, waves, or natural flows.
-           - Backgrounds must reflect the literary mood dynamically:
-             * Sad/Deep: fog, muted lighting, shadows, textured darkness
-             * Divine/Spiritual: celestial glow, rays of light, ethereal clouds
-             * Romantic: flowing colors, blooming patterns, soft textures
-             * Wisdom/Historical: stone, marble, parchment, ancient libraries
-           - Ensure organic integration between text and background, not just overlay.
+        2. CALLIGRAPHY:
+           - Choose script matching the mood: Thuluth for majesty, Diwani for emotion, Naskh for prose, Kufic for historical.
+           - Include full diacritics artistically.
+           - Make text appear material: liquid gold, carved stone, glowing neon.
+           - Integrate text organically with the background (not pasted on top).
 
-        3. CALLIGRAPHY:
-           - Use majestic Arabic scripts according to mood:
-             * Thuluth for grandeur & solemnity
-             * Diwani for flow & emotion
-             * Naskh for clarity & narration
-             * Kufic for historic/strong texts
-           - Include Tashkeel (diacritics) artistically.
-           - The text should appear as physical material: gold, marble, wood, glowing, carved, or fluid.
+        3. BACKGROUND & ATMOSPHERE:
+           - Match the theme: foggy golden light for mystical, flowers for romance, marble/ancient textures for wisdom, historical sites for heritage.
+           - Cinematic lighting, depth, shadows, rays, and realistic textures.
+           - Text must remain legible and prominent.
 
-        4. LIGHT & COLOR:
-           - Cinematic lighting, 8K resolution, Ray Tracing.
-           - Colors must enhance mood and readability:
-             * Sad: Deep blues, purples, grays
-             * Hope/Romance: Golds, soft pinks, emeralds
-             * Wisdom: Earthy tones, sepia, bronze
-             * Historical: Marble, stone, parchment textures
-           - Depth of field: highlight text, add layered realism.
+        4. COLOR & MOOD:
+           - Emotional palette: Blue/Purple for sorrow, Gold/Amber for hope, Earth tones for wisdom, Pink/Crimson for romance.
+           - Harmonize colors with text visibility.
 
-        5. INTEGRITY & QUALITY:
-           - Text must be 100% correct in Arabic.
-           - Signature "@Rwaea3" must be elegant and part of the environment.
-           - Avoid watermarks, logos, or copied elements.
-           - Ensure photorealistic textures and cinematic artistic mastery.
+        5. SIGNATURE & COPYRIGHT:
+           - Always include signature: "روائع من الأدب العربي | @Rwaea3".
+           - Signature should be subtle, elegant, and integrated into the design.
+
+        6. OUTPUT REQUIREMENTS:
+           - Resolution: 8K+ portrait_4_3
+           - Cinematic quality, ray tracing, photorealistic textures
+           - Layered depth and detail, visually immersive
+           - Ready for professional publication
 
         GENERATE THE MASTERPIECE NOW.
         """
@@ -92,8 +83,8 @@ class GoogleDesignService:
                     arguments={
                         "prompt": prompt,
                         "image_size": "portrait_4_3",
-                        "num_inference_steps": 55,   # Maximum detail
-                        "guidance_scale": 5.5,       # Strong adherence to prompt while allowing creative freedom
+                        "num_inference_steps": 50,  # high detail
+                        "guidance_scale": 5.0,      # balance creativity & adherence
                         "enable_safety_checker": True
                     },
                     with_logs=True
@@ -101,18 +92,21 @@ class GoogleDesignService:
 
             result = await asyncio.to_thread(run_fal)
 
-            if result and 'images' in result and len(result['images']) > 0:
-                image_url = result['images'][0]['url']
+            if result and "images" in result and len(result["images"]) > 0:
+                image_url = result["images"][0]["url"]
                 return await self._download_image(image_url, message_id)
 
             logger.warning("⚠️ Gemini returned no images.")
             return None
 
         except Exception as e:
-            logger.error(f"❌ Masterpiece Generation Failed: {e}")
+            logger.error(f"❌ PRO Design generation failed: {e}")
             return None
 
     async def _download_image(self, url: str, message_id: int) -> str:
+        """
+        Download the generated image and save locally.
+        """
         try:
             def download():
                 response = requests.get(url, timeout=60)
@@ -120,12 +114,11 @@ class GoogleDesignService:
                     output_dir = "/app/data"
                     os.makedirs(output_dir, exist_ok=True)
                     output_path = os.path.join(output_dir, f"pro_{message_id}.png")
-                    with open(output_path, 'wb') as f:
+                    with open(output_path, "wb") as f:
                         f.write(response.content)
                     return output_path
                 return None
             return await asyncio.to_thread(download)
         except Exception as e:
-            logger.error(f"Download Error: {e}")
+            logger.error(f"❌ Download Error: {e}")
             return None
-# --- END OF FILE ---
