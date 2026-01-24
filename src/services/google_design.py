@@ -1,95 +1,71 @@
-# --- START OF FILE src/services/google_design.py ---
 import logging
 import os
 import asyncio
-from google import genai
-from google.genai import types
-from PIL import Image
-from io import BytesIO
+import fal_client
+import requests
 from src.config import settings
 
-logger = logging.getLogger("NanoBananaPro")
+logger = logging.getLogger("GoogleDesignService")
 
 class GoogleDesignService:
     def __init__(self):
-        self.client = None
-        if settings.GOOGLE_API_KEY:
-            self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-            # ✅ THE FIX: استخدام الموديل الصحيح (Nano Banana Pro) المذكور في الوثائق
-            # هذا الموديل يدعم "التفكير" وكتابة النصوص بدقة عالية
-            self.model_name = "gemini-3-pro-image-preview"
-        else:
-            logger.critical("❌ GOOGLE_API_KEY is missing! Google Design Service Disabled.")
+        if not settings.FAL_KEY: return
+        os.environ["FAL_KEY"] = settings.FAL_KEY
+        # النموذج الاحترافي الكامل (كتابة + رسم)
+        self.model_endpoint = "fal-ai/gemini-3-pro-image-preview"
 
-    async def generate_design(self, text: str, message_id: int) -> str:
-        """
-        يستخدم Gemini 3 Pro (Nano Banana Pro) لتوليد صورة وكتابة النص عليها
-        """
-        if not self.client:
-            return None
-
-        logger.info(f"🍌 Nano Banana Pro Thinking: {text[:30]}...")
-
-        # هندسة الأمر (Prompt) لتفعيل قدرات الكتابة
-        prompt = f"""
-        Create a high-fidelity, artistic social media card.
+    async def generate_pro_design(self, text: str, message_id: int) -> str:
+        """تصميم احترافي كامل (نص + صورة) باستخدام جوجل"""
+        logger.info(f"💎 PRO Design requested for: {text[:30]}...")
         
-        1. THEME:
-           A cinematic, deep, and emotional background reflecting this text: "{text}".
-           Style: Abstract art, watercolor, or Islamic geometry. Soft, warm lighting.
-           
-        2. TEXT RENDERING (CRITICAL):
-           Render the following Arabic text exactly as written in the center of the image:
-           "{text}"
-           
-           - Font: Calligraphic, Elegant, Arabic style.
-           - Color: High contrast (Gold, White, or Black) ensuring 100% readability.
+        prompt = f"""
+        Act as a professional Arabic Calligrapher and Digital Artist.
+        TASK: Create a cinematic poster.
+        
+        TEXT TO WRITE (CENTER): "{text}"
+        
+        STYLE:
+        - Font: Majestic Arabic Calligraphy (Thuluth/Diwani).
+        - Color: Gold/White High Contrast.
+        - Background: Artistic, moody, cinematic lighting, 8k resolution.
+        - Composition: The text must be the HERO of the image.
         """
 
         try:
-            # تشغيل الدالة في Thread منفصل
-            def call_google():
-                # ✅ استخدام generate_content كما في وثائق Nano Banana
-                return self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        response_modalities=["IMAGE"], # طلب صورة صراحة
-                        safety_settings=[ # إعدادات الأمان لضمان عدم حجب القصائد
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                threshold="BLOCK_ONLY_HIGH"
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_HATE_SPEECH",
-                                threshold="BLOCK_ONLY_HIGH"
-                            ),
-                        ]
-                    )
+            def run_fal():
+                return fal_client.subscribe(
+                    self.model_endpoint,
+                    arguments={
+                        "prompt": prompt,
+                        "image_size": "portrait_4_3",
+                        "num_inference_steps": 30, # جودة قصوى
+                        "guidance_scale": 3.5
+                    },
+                    with_logs=True
                 )
 
-            # التنفيذ غير المتزامن
-            response = await asyncio.to_thread(call_google)
+            result = await asyncio.to_thread(run_fal)
+            
+            if result and 'images' in result and len(result['images']) > 0:
+                image_url = result['images'][0]['url']
+                return await self._download_image(image_url, message_id)
+            
+            return None
+        except Exception as e:
+            logger.error(f"❌ PRO Design Failed: {e}")
+            return None
 
-            # معالجة الرد (حسب هيكل Nano Banana في الوثائق)
-            for part in response.parts:
-                if part.inline_data:
-                    image_data = part.inline_data.data
-                    image = Image.open(BytesIO(image_data))
-                    
-                    # حفظ الصورة
+    async def _download_image(self, url: str, message_id: int) -> str:
+        try:
+            def download():
+                response = requests.get(url, timeout=60)
+                if response.status_code == 200:
                     output_dir = "/app/data"
                     os.makedirs(output_dir, exist_ok=True)
-                    output_path = os.path.join(output_dir, f"design_{message_id}.png")
-                    
-                    image.save(output_path)
-                    logger.info("✅ Nano Banana Pro Design Created Successfully.")
+                    output_path = os.path.join(output_dir, f"pro_{message_id}.png")
+                    with open(output_path, 'wb') as f:
+                        f.write(response.content)
                     return output_path
-            
-            logger.warning("⚠️ No image found in response.")
-            return None
-
-        except Exception as e:
-            logger.error(f"❌ Nano Banana Failed: {e}")
-            # إذا فشل الموديل الجديد، سيعود النظام تلقائياً لـ HTML Renderer
-            return None
+                return None
+            return await asyncio.to_thread(download)
+        except: return None
