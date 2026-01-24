@@ -11,67 +11,80 @@ logger = logging.getLogger("FalDesignService")
 
 class FalDesignService:
     def __init__(self):
-        if not settings.FAL_KEY: return
+        if not settings.FAL_KEY: 
+            return
         os.environ["FAL_KEY"] = settings.FAL_KEY
         self.model_endpoint = "fal-ai/flux/schnell"
 
-    def _detect_mood(self, text: str) -> dict:
-        """تحليل بسيط للنص لتحديد جو الصورة والألوان"""
-        text = text.lower()
-        
-        # 1. نمط الصباح والأمل
-        if any(w in text for w in ['صبح', 'شمس', 'نور', 'ضياء', 'أمل', 'سعادة', 'فرح', 'بسمة', 'زهر', 'ورد', 'جمال']):
-            return {
-                "desc": "A beautiful sunrise landscape, soft morning light, flowers, blurred background",
-                "colors": "Pastel, White, Light Blue, Gold"
-            }
-        
-        # 2. نمط الليل والحزن
-        elif any(w in text for w in ['ليل', 'ظلام', 'سهر', 'قمر', 'حزن', 'ألم', 'فراق', 'دمع', 'هم', 'وجع', 'موت']):
-            return {
-                "desc": "A dark cinematic night sky, stars, moon, moody atmosphere, mysterious fog",
-                "colors": "Dark Blue, Black, Silver, Deep Purple"
-            }
-            
-        # 3. نمط الطبيعة
-        elif any(w in text for w in ['بحر', 'مطر', 'غيم', 'سماء', 'شجر', 'طبيعة', 'نهر', 'جبل', 'أرض']):
-            return {
-                "desc": "Majestic nature landscape, mountains and clouds, cinematic lighting, hyper-realistic",
-                "colors": "Green, Earthy Browns, Sky Blue, Teal"
-            }
-        
-        # 4. نمط الحكمة (الافتراضي)
-        else:
-            options = [
-                {"d": "Abstract Islamic geometric patterns, elegant texture, soft depth of field", "c": "Gold, Turquoise, Beige"},
-                {"d": "Vintage paper texture, old library atmosphere, cinematic lighting", "c": "Sepia, Brown, Black"},
-                {"d": "Abstract fluid art, marble texture, clean and modern", "c": "White, Gold, Grey"}
-            ]
-            choice = random.choice(options)
-            return {"desc": choice["d"], "colors": choice["c"]}
-
     async def generate_background_b64(self, text: str) -> str:
-        """توليد خلفية نظيفة تماماً (بدون إرسال النص العربي للموديل)"""
+        """Generate intelligent background based on Arabic text understanding"""
         
-        # 1. تحديد المزاج
-        mood = self._detect_mood(text)
-        logger.info(f"🎨 Detected Mood: {mood['desc']}")
-        
-        # 2. هندسة الأمر (Prompt) - خالي من النص العربي تماماً
-        # نطلب منه خلفية ضبابية (Blurry/Bokeh) لتكون مثالية للكتابة فوقها
+        logger.info(f"🎨 Generating intelligent background for text: {text[:40]}...")
+
+        # --- Intelligent Dynamic Prompt ---
+        # Give the AI the text and let it understand and create accordingly
         prompt = f"""
-        High-quality background wallpaper.
-        Subject: {mood['desc']}.
-        Color Palette: {mood['colors']}.
+        You are a brilliant visual artist who understands Arabic poetry and literature.
         
-        Style: 8k resolution, Soft Focus, Bokeh Effect, Minimalist, Cinematic Lighting.
+        IMPORTANT ARABIC TEXT FOR UNDERSTANDING (do NOT write this text in the image):
+        "{text}"
         
-        CRITICAL RULES:
-        - PURE BACKGROUND ONLY.
-        - NO TEXT.
-        - NO LETTERS.
-        - NO WATERMARKS.
-        - NO CALLIGRAPHY.
+        YOUR CREATIVE MISSION:
+        Based on your understanding of this Arabic text, create a cinematic background that captures its essence.
+        
+        HOW TO THINK ABOUT THIS:
+        1. Read and deeply understand the Arabic text above.
+        2. What emotions does it evoke? (melancholy, joy, love, spirituality, wisdom, nostalgia, hope, longing)
+        3. What imagery does it suggest? (metaphorical, not literal)
+        4. What atmosphere would complement this text?
+        
+        CREATIVE GUIDELINES:
+        - Create a background, not an illustration of the text
+        - Think in terms of mood, atmosphere, and emotion
+        - Use color psychology to match the text's feeling
+        - Create visual harmony that would make Arabic calligraphy look beautiful on it
+        - Consider lighting that enhances readability
+        
+        ARTISTIC DIRECTION:
+        • Style: Cinematic, atmospheric, elegant
+        • Quality: 8K resolution, professional lighting
+        • Composition: Balanced, with space for text overlay
+        • Mood: Let the text guide your emotional choice
+        
+        TECHNICAL REQUIREMENTS:
+        - Ultra high quality background
+        - Soft focus or bokeh effect for text readability
+        - Professional color grading
+        - Balanced contrast for text overlay
+        
+        ABSOLUTELY FORBIDDEN:
+        ✗ NO text, letters, or writing of any kind
+        ✗ NO human faces or figures
+        ✗ NO logos or watermarks
+        ✗ NO direct illustration of the text's literal meaning
+        ✗ NO copied or generic patterns
+        
+        CREATIVE EXAMPLES OF THINKING:
+        If the text is about "longing for homeland":
+        ❌ Wrong: Paint a map or flag
+        ✅ Right: Create a warm, nostalgic golden hour atmosphere with soft focus
+        
+        If the text is about "spiritual awakening":
+        ❌ Wrong: Paint religious symbols
+        ✅ Right: Create ethereal light breaking through darkness, subtle glow
+        
+        If the text is about "lost love":
+        ❌ Wrong: Paint broken hearts
+        ✅ Right: Create soft, melancholic blue tones with gentle fading
+        
+        YOUR ARTISTIC PROCESS:
+        1. First, understand the soul of this Arabic text
+        2. Translate that understanding into color, light, and texture
+        3. Create a visual atmosphere that speaks without words
+        4. Ensure it serves as a perfect canvas for the text
+        
+        Remember: You're creating the stage, not the actor. The Arabic text will be the star.
+        Create a background so beautiful that the text will feel honored to be placed upon it.
         """
 
         try:
@@ -81,34 +94,39 @@ class FalDesignService:
                     arguments={
                         "prompt": prompt,
                         "image_size": "portrait_4_3",
-                        "num_inference_steps": 4,
+                        "num_inference_steps": 6,      # Optimal for quality/speed balance
+                        "guidance_scale": 4.0,         # Creative but guided
                         "enable_safety_checker": True
                     },
                     with_logs=True
                 )
 
             result = await asyncio.to_thread(run_fal)
-            
+
             if result and 'images' in result and len(result['images']) > 0:
                 image_url = result['images'][0]['url']
                 return await self._url_to_base64(image_url)
-            
+
+            logger.warning("⚠️ Model returned no images")
             return None
 
         except Exception as e:
-            logger.error(f"❌ Fal.ai Failed: {e}")
+            logger.error(f"❌ Intelligent background generation failed: {e}")
             return None
 
     async def _url_to_base64(self, url: str) -> str:
+        """Convert image URL to base64 data URL"""
         try:
             def convert():
                 response = requests.get(url, timeout=30)
                 if response.status_code == 200:
+                    # Detect content type
+                    content_type = response.headers.get('content-type', 'image/jpeg')
                     b64_data = base64.b64encode(response.content).decode('utf-8')
-                    return f"data:image/jpeg;base64,{b64_data}"
+                    return f"data:{content_type};base64,{b64_data}"
                 return None
 
             return await asyncio.to_thread(convert)
         except Exception as e:
-            logger.error(f"Base64 Conversion Failed: {e}")
+            logger.error(f"❌ Base64 conversion failed: {e}")
             return None
