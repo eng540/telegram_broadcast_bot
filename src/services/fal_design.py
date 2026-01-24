@@ -3,7 +3,7 @@ import os
 import asyncio
 import fal_client
 import requests
-import uuid
+import base64 # المكتبة الضرورية
 from src.config import settings
 
 logger = logging.getLogger("FalDesignService")
@@ -14,8 +14,9 @@ class FalDesignService:
         os.environ["FAL_KEY"] = settings.FAL_KEY
         self.model_endpoint = "fal-ai/flux/schnell"
 
-    async def generate_background(self, text: str) -> str:
-        logger.info(f"🎨 Fal.ai (Schnell) generating background...")
+    async def generate_background_b64(self, text: str) -> str:
+        """توليد خلفية وإعادتها كنص مشفر Base64"""
+        logger.info(f"🎨 Fal.ai generating background...")
         
         prompt = f"""
         Abstract artistic background representing: "{text[:100]}".
@@ -41,10 +42,8 @@ class FalDesignService:
             
             if result and 'images' in result and len(result['images']) > 0:
                 image_url = result['images'][0]['url']
-                logger.info(f"✅ Image Generated: {image_url}")
-                
-                # 🔥 التغيير الجوهري: تحميل الصورة فوراً
-                return await self._download_image(image_url)
+                # 🔥 التحويل إلى Base64 فوراً
+                return await self._url_to_base64(image_url)
             
             return None
 
@@ -52,27 +51,18 @@ class FalDesignService:
             logger.error(f"❌ Fal.ai Failed: {e}")
             return None
 
-    async def _download_image(self, url: str) -> str:
-        """تحميل الصورة من الرابط وحفظها محلياً"""
+    async def _url_to_base64(self, url: str) -> str:
+        """تحميل الصورة وتحويلها لنص"""
         try:
-            def download():
+            def convert():
                 response = requests.get(url, timeout=30)
                 if response.status_code == 200:
-                    output_dir = "/app/data"
-                    os.makedirs(output_dir, exist_ok=True)
-                    # اسم ملف فريد
-                    filename = f"bg_{uuid.uuid4()}.jpg"
-                    path = os.path.join(output_dir, filename)
-                    with open(path, 'wb') as f:
-                        f.write(response.content)
-                    return path
+                    # التشفير
+                    b64_data = base64.b64encode(response.content).decode('utf-8')
+                    return f"data:image/jpeg;base64,{b64_data}"
                 return None
 
-            local_path = await asyncio.to_thread(download)
-            if local_path:
-                logger.info(f"📥 Background downloaded to: {local_path}")
-            return local_path
-            
+            return await asyncio.to_thread(convert)
         except Exception as e:
-            logger.error(f"Failed to download background: {e}")
+            logger.error(f"Base64 Conversion Failed: {e}")
             return None
