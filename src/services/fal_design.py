@@ -11,70 +11,59 @@ logger = logging.getLogger("FalDesignService")
 
 class FalDesignService:
     def __init__(self):
-        if not settings.FAL_KEY: 
+        if not settings.FAL_KEY:
             logger.warning("⚠️ FAL_KEY missing. Service disabled.")
             return
         os.environ["FAL_KEY"] = settings.FAL_KEY
         self.model_endpoint = "fal-ai/flux/schnell"
 
     async def generate_background_b64(self, text: str) -> str:
-        """Generate a creative, intelligent background inspired by Arabic text without writing text on it"""
-        
+        """
+        Generate a creative, intelligent background inspired by Arabic text.
+        IMPORTANT: No text, letters, or calligraphy should appear in the image.
+        """
         if not settings.FAL_KEY:
             logger.warning("⚠️ FAL_KEY not set. Cannot generate background.")
             return None
 
         logger.info(f"🎨 Generating intelligent background for text: {text[:40]}...")
 
-        # --- PRO Intelligent Dynamic Prompt ---
+        # --- PRO Dynamic Prompt (strictly background) ---
         prompt = f"""
-        ROLE: You are a world-class visual artist and Arabic literary connoisseur.
-        
-        INPUT (for understanding, NOT to write in the image):
+        ROLE: You are a top-tier visual artist.
+
+        INPUT (for understanding only, do NOT include in the image):
         "{text}"
-        
+
         OBJECTIVE:
-        - Create a cinematic, hyper-realistic background inspired by the mood, metaphors, and emotions of the Arabic text.
-        - Do NOT write any words, letters, or calligraphy on the image.
-        - Avoid human faces, logos, or literal illustrations of the text.
-        - The background should be elegant, immersive, and ready for overlaying Arabic text.
+        - Create a cinematic, atmospheric, hyper-realistic background inspired by the emotions, mood, and metaphors of the Arabic text.
+        - The image must be completely text-free.
+        - Do not include letters, calligraphy, logos, watermarks, or human faces.
+        - Focus on mood, lighting, color palette, and texture that reflects the text's essence.
+        - Make the composition ready for later text overlay.
 
-        ARTISTIC GUIDELINES:
-        1. Analyze the text: what emotions, metaphors, and atmosphere does it convey? (love, nostalgia, spirituality, melancholy, hope, joy)
-        2. Translate that understanding into:
-           - Color palette (mood colors)
-           - Light and shadow
-           - Texture and depth
-        3. Style:
-           - Cinematic, atmospheric, photorealistic, or surreal if fitting
-           - 8K quality, professional lighting
-           - Soft focus or bokeh where appropriate
-           - Composition: balanced with space for text overlay
-        4. Forbidden:
-           - Any text, calligraphy, logos, or watermarks
-           - Direct literal illustration of phrases
-           - Faces or figures
-           - Generic stock patterns
+        STYLE GUIDELINES:
+        - Cinematic, professional, 8K resolution
+        - Soft focus or bokeh for text readability
+        - Balanced color grading and lighting
+        - Immersive, elegant, visually harmonious
 
-        EXAMPLES OF THINKING:
-        - Text about "longing for home": warm golden light, soft mist, nostalgic atmosphere
-        - Text about "spiritual awakening": ethereal light breaking through shadows, gentle glow
-        - Text about "lost love": soft melancholic blues, fading textures, reflective water or fog
-
-        FINAL OUTPUT:
-        A stunning background image capturing the soul of the Arabic text, elegant, immersive, and text-ready.
+        FORBIDDEN:
+        ✗ Text, letters, or calligraphy
+        ✗ Faces, figures, or identifiable humans
+        ✗ Logos, watermarks, or stock patterns
+        ✗ Literal depiction of the text
         """
 
         try:
-            # Run the FAL model in a thread
             def run_fal():
                 return fal_client.subscribe(
                     self.model_endpoint,
                     arguments={
                         "prompt": prompt,
-                        "image_size": "portrait_4_3",  # optimized for text overlay
-                        "num_inference_steps": 12,    # higher for better quality
-                        "guidance_scale": 4.5,        # creative but guided
+                        "image_size": "portrait_4_3",
+                        "num_inference_steps": 12,
+                        "guidance_scale": 4.5,
                         "enable_safety_checker": True
                     },
                     with_logs=True
@@ -90,7 +79,7 @@ class FalDesignService:
             return None
 
         except Exception as e:
-            logger.error(f"❌ Intelligent PRO background generation failed: {e}")
+            logger.error(f"❌ PRO background generation failed: {e}")
             return None
 
     async def _url_to_base64(self, url: str) -> str:
