@@ -1,4 +1,3 @@
-# --- START OF FILE src/services/google_design.py ---
 import logging
 import os
 import asyncio
@@ -14,38 +13,50 @@ class GoogleDesignService:
             logger.warning("⚠️ FAL_KEY is missing.")
             return
         os.environ["FAL_KEY"] = settings.FAL_KEY
-        # نستخدم أقوى نموذج لدى قوقل حالياً
+        # النموذج المعتمد: Gemini 3 Pro Image (الأذكى في العالم للنصوص)
         self.model_endpoint = "fal-ai/gemini-3-pro-image-preview"
 
     async def generate_pro_design(self, text: str, message_id: int) -> str:
         """
-        يرسل النص لـ Google Gemini ويطلب منه تحليله وتصميمه بأسلوب فني حر
+        Generate a masterpiece design where AI acts as both Art Director and Calligrapher.
         """
         if not settings.FAL_KEY: return None
-        
-        logger.info(f"💎 Gemini 3 Pro is analyzing context for: {text[:20]}...")
 
-        # --- هندسة البرومبت الاستراتيجية ---
-        # هذا البرومبت يترك الحرية للنموذج لفهم النص وتحويله لتصميم بصري
+        logger.info(f"💎 Gemini 3 Pro Dreaming: {text[:30]}...")
+
+        # --- Super-Prompt: هندسة الأوامر المتقدمة ---
         prompt = f"""
-        ACT AS: An elite Arabic Calligrapher and Conceptual Art Director for a high-end literature channel.
+        ROLE: You are the world's most renowned Arabic Calligrapher and Surrealist Digital Artist.
+
+        YOUR TASK: Create a breathtaking cinematic poster that visualizes the soul of the text below.
+
+        === THE INPUT ===
+        MAIN TEXT (Arabic): "{text}"
+        SIGNATURE (Small, Bottom): "@Rwaea3"
+
+        === EXECUTION PROTOCOL ===
         
-        INPUT TEXT:
-        "{text}"
+        1. 🧠 DEEP ANALYSIS (INTERNAL):
+           - Analyze the text. Is it Sad? Heroic? Sufi/Divine? Romantic?
+           - Visualize a scene that *metaphorically* represents this emotion, not just literally.
+           - Example: If text speaks of "hope", visualize light breaking through dark clouds.
+
+        2. 🎨 ARTISTIC DIRECTION (DYNAMIC):
+           - Style: Hyper-realistic, 8k, Cinematic Lighting, Ray Tracing.
+           - Composition: The Arabic text must be the "Hero" of the image, centered and imposing.
+           - Background: Must be atmospheric and moody (e.g., blurry ancient library, desert at twilight, stormy ocean, celestial geometry).
+           - Contrast: Text color MUST contrast perfectly with the background (Gold on Dark, Black on Parchment).
+
+        3. ✍️ CALLIGRAPHY ENGINE:
+           - Write the MAIN TEXT in the center using majestic Arabic scripts (Thuluth, Diwani, or Royal Naskh).
+           - Ensure Diacritics (Tashkeel) are present and artistic.
+           - The text should look like it is made of physical material (e.g., liquid gold, carved stone, glowing neon) integrated into the world.
         
-        --- YOUR CREATIVE PROCESS ---
-        1. ANALYZE: Read the Arabic text deeply. Understand the hidden emotions, symbolism, and literary essence.
-        2. VISUALIZE: Create a background that represents the *soul* of the text, not just the literal words.
-           Use your artistic intelligence to decide the mood, colors, lighting, and textures that best fit the text.
-        
-        --- EXECUTION REQUIREMENTS ---
-        1. THE TEXT IS THE HERO: Write the exact Arabic text provided above in the visual center.
-        2. CALLIGRAPHY STYLE: Choose the font style that naturally fits the text's mood and literary tone.
-        3. INTEGRATION: The text must feel carved, written, or floating within the environment, NOT just pasted on top.
-        4. QUALITY: 8k resolution, Cinematic Lighting, Ray Tracing, Photorealistic textures.
-        5. LEGIBILITY: The text must be perfectly readable with high contrast against the background.
-        
-        Generate the Masterpiece.
+        4. 🛡️ INTEGRITY CHECK:
+           - The Arabic text must be spelled 100% correctly.
+           - The Signature "@Rwaea3" must be small, subtle, and elegant at the bottom center.
+
+        GENERATE THE MASTERPIECE NOW.
         """
 
         try:
@@ -54,10 +65,10 @@ class GoogleDesignService:
                     self.model_endpoint,
                     arguments={
                         "prompt": prompt,
-                        "image_size": "portrait_4_3",
-                        # نعطيه وقتاً كافياً للتفكير والإبداع
-                        "num_inference_steps": 40, 
-                        "guidance_scale": 4.5 
+                        "image_size": "portrait_4_3", # الأفضل للجوال
+                        "num_inference_steps": 40,    # زدنا الدقة قليلاً لضمان حدة الخط
+                        "guidance_scale": 4.5,        # توازن مثالي بين الالتزام بالنص والإبداع الفني
+                        "enable_safety_checker": True
                     },
                     with_logs=True
                 )
@@ -68,7 +79,9 @@ class GoogleDesignService:
                 image_url = result['images'][0]['url']
                 return await self._download_image(image_url, message_id)
 
+            logger.warning("⚠️ Gemini returned no images.")
             return None
+
         except Exception as e:
             logger.error(f"❌ PRO Design Failed: {e}")
             return None
@@ -86,5 +99,6 @@ class GoogleDesignService:
                     return output_path
                 return None
             return await asyncio.to_thread(download)
-        except: return None
-# --- END OF FILE ---
+        except Exception as e:
+            logger.error(f"Download Error: {e}")
+            return None
