@@ -2,7 +2,7 @@ import logging
 import sys
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool # ✅ الإضافة الضرورية
+from sqlalchemy.pool import NullPool
 from src.config import settings
 from src.models import Base
 
@@ -15,23 +15,22 @@ if not db_url:
     logger.critical("🚨 FATAL: DATABASE_URL is missing.")
     sys.exit(1)
 
-# تصحيح الرابط
+# تصحيح الرابط لمكتبة SQLAlchemy
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 
 logger.info(f"🔌 Database Configured: PostgreSQL")
 
-# إعدادات خاصة لـ Supabase Pooler
+# ✅ الإعدادات الصحيحة والدقيقة لـ Supabase Transaction Pooler
+# نستخدم المفتاح "statement_cache_size" فقط، وهو ما تفهمه مكتبة asyncpg
 connect_args = {
-    "statement_cache_size": 0,
-    "prepared_statement_cache_size": 0
+    "statement_cache_size": 0
 }
 
 engine = create_async_engine(
     db_url,
     echo=False,
-    # ✅ استخدام NullPool يمنع الاحتفاظ بالاتصالات القديمة ويحل مشكلة التضارب
-    poolclass=NullPool, 
+    poolclass=NullPool, # يمنع الاحتفاظ بالاتصالات (ضروري للمنفذ 6543)
     connect_args=connect_args
 )
 
